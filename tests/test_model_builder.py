@@ -1,5 +1,5 @@
 import pytest
-from nnueehcs.model_builder import (build_network, ModelBuilder, DeltaUQMLPModelBuilder)
+from nnueehcs.model_builder import (build_network, ModelBuilder, DeltaUQMLPModelBuilder, EnsembleModelBuilder)
 import torch
 import io
 import yaml
@@ -101,6 +101,8 @@ architecture2:
         args: [25, 5]
 delta_uq_model:
     estimator: std
+ensemble_model:
+    num_models: 10
 """
     return model_yaml
 
@@ -153,7 +155,7 @@ def test_duq_model_builder(model_descr_yaml, duq_architecture1, duq_architecture
     assert info.get_estimator() == 'std'
 
 
-    net = model_builder.build_network()
+    net = model_builder.build()
     assert_models_equal(net, duq_architecture1)
 
     model_builder = DeltaUQMLPModelBuilder(model_descr['architecture2'], model_descr['delta_uq_model'])
@@ -164,5 +166,32 @@ def test_duq_model_builder(model_descr_yaml, duq_architecture1, duq_architecture
     assert info.num_inputs() == 32
     assert info.get_estimator() == 'std'
 
-    net = model_builder.build_network()
+    net = model_builder.build()
     assert_models_equal(net, duq_architecture2)
+
+
+def test_ensemble_model_builder(model_descr_yaml):
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    model_builder = EnsembleModelBuilder(model_descr['architecture'], model_descr['ensemble_model'])
+    ensemble = model_builder.build()
+    info = model_builder.get_info()
+    assert info.get_num_models() == 10
+
+    assert info.is_cnn() == True
+    assert info.is_mlp() == False
+    assert info.num_layers() == 3
+    assert info.num_inputs() == 3
+
+    assert not hasattr(info, 'get_estimator')
+
+    model_builder2 = EnsembleModelBuilder(model_descr['architecture2'], model_descr['ensemble_model'])
+    ensemble2 = model_builder2.build()
+    info2 = model_builder2.get_info()
+    assert info2.get_num_models() == 10
+
+    assert info2.is_cnn() == False
+    assert info2.is_mlp() == True
+    assert info2.num_layers() == 5
+    assert info2.num_inputs() == 16
+
+    assert not hasattr(info2, 'get_estimator')

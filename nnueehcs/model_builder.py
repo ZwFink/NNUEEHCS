@@ -2,7 +2,7 @@ import torch.nn
 import collections
 import io
 import yaml
-from deltauq import deltaUQ_MLP
+from .models import deltaUQ_MLP, EnsembleModel
 import copy
 import types
 
@@ -144,7 +144,7 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
         super().__init__(base_descr)
         self.duq_descr = duq_descr
 
-    def build_network(self):
+    def build(self):
         base_model = super().build()
         return deltaUQ_MLP(base_model, estimator=self.duq_descr['estimator'])
 
@@ -156,3 +156,21 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
             return estimator
         info.set_num_inputs(2 * info.num_inputs())
         info.get_estimator = types.MethodType(get_estimator, info)
+
+class EnsembleModelBuilder(ModelBuilder):
+    def __init__(self, base_descr, ensemble_descr):
+        super().__init__(base_descr)
+        self.ensemble_descr = ensemble_descr
+
+    def build(self):
+        info = self.get_info()
+        build = super().build
+        base_models = [build() for _ in range(info.get_num_models())]
+        return EnsembleModel(base_models)
+
+    def update_info(self, info):
+        num_models = self.ensemble_descr['num_models']
+
+        def get_num_models(self):
+            return num_models
+        info.get_num_models = types.MethodType(get_num_models, info)
