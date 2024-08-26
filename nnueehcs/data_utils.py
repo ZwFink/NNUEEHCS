@@ -26,15 +26,15 @@ class DatasetCommon():
 
 
 class HDF5Dataset(DatasetCommon, Dataset):
-    def __init__(self, file_path: str, group_name: str, 
+    def __init__(self, path: str, group_name: str, 
                  input_dataset: str, output_dataset: str):
         super().__init__()
-        self.file_path = file_path
+        self.path = path
         self.group_name = group_name
         self.input_dataset = input_dataset
         self.output_dataset = output_dataset
 
-        self.ipt_dataset, self.opt_dataset = self.get_datasets(file_path,
+        self.ipt_dataset, self.opt_dataset = self.get_datasets(path,
                                                                group_name,
                                                                input_dataset,
                                                                output_dataset
@@ -71,17 +71,17 @@ class HDF5Dataset(DatasetCommon, Dataset):
 
 
 class ARFFDataSet(DatasetCommon, Dataset):
-    def __init__(self, file_path: str):
+    def __init__(self, path: str):
         super().__init__()
-        self.file_path = file_path
-        self.input, self.output = self.read_arff_file(file_path)
+        self.path = path
+        self.input, self.output = self.read_arff_file(path)
         self.input, self.output = torch.tensor(self.input), torch.tensor(self.output)
         self.len = len(self.input)
 
-    def read_arff_file(self, file_path):
+    def read_arff_file(self, path):
         from scipy.io import arff
         import pandas as pd
-        data, meta = arff.loadarff(file_path)
+        data, meta = arff.loadarff(path)
         df = pd.DataFrame(data)
         return df.iloc[:, :-1].values, df.iloc[:, -1].values
 
@@ -91,32 +91,32 @@ class ARFFDataSet(DatasetCommon, Dataset):
 
 
 class CharacterDelimitedDataset(DatasetCommon, Dataset):
-    def __init__(self, file_path: str, delimiter: str):
+    def __init__(self, path: str, delimiter: str):
         super().__init__()
-        self.file_path = file_path
+        self.path = path
         self.delimiter = delimiter
-        self.input, self.output = self.read_file(file_path, delimiter)
+        self.input, self.output = self.read_file(path, delimiter)
         self.input, self.output = torch.tensor(self.input), torch.tensor(self.output)
         self.len = len(self.input)
 
-    def read_file(self, file_path, delimiter):
-        has_header = self.file_has_header(file_path, delimiter)
+    def read_file(self, path, delimiter):
+        has_header = self.file_has_header(path, delimiter)
         if has_header:
-            df = pd.read_csv(file_path, delimiter=delimiter)
+            df = pd.read_csv(path, delimiter=delimiter)
         else:
-            df = pd.read_csv(file_path, delimiter=delimiter, header=None)
+            df = pd.read_csv(path, delimiter=delimiter, header=None)
         return df.iloc[:, :-1].values, df.iloc[:, -1].values
 
 
-    def file_has_header(self, file_path, sep):
-        if isinstance(file_path, str):
-            with open(file_path, 'r') as file:
+    def file_has_header(self, path, sep):
+        if isinstance(path, str):
+            with open(path, 'r') as file:
                 sample_lines = [file.readline() for _ in range(5)]
         else:
-            original_position = file_path.tell()
-            file_path.seek(0)
-            sample_lines = [file_path.readline() for _ in range(5)]
-            file_path.seek(original_position)
+            original_position = path.tell()
+            path.seek(0)
+            sample_lines = [path.readline() for _ in range(5)]
+            path.seek(original_position)
     
         processed_lines = []
         for line in sample_lines:
@@ -148,12 +148,17 @@ def read_dataset_from_yaml(filename: str, dataset_name: str):
             config = yaml.safe_load(f)
     except TypeError:
         config = yaml.safe_load(filename)
+
+    config = config['datasets']
     dset_details = config[dataset_name]
-    if dset_details['type'] == 'hdf5':
-        del dset_details['type']
+    if dset_details['format'] == 'hdf5':
+        del dset_details['format']
         return HDF5Dataset(**dset_details)
-    elif dset_details['type'] == 'arff':
-        del dset_details['type']
+    elif dset_details['format'] == 'arff':
+        del dset_details['format']
         return ARFFDataSet(**dset_details)
+    elif dset_details['format'] == 'character_delimited':
+        del dset_details['format']
+        return CharacterDelimitedDataset(**dset_details)
     else:
-        raise ValueError(f"Unknown dataset type {dset_details['type']}")
+        raise ValueError(f"Unknown dataset format {dset_details['format']}")

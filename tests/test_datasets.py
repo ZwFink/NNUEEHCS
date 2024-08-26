@@ -71,21 +71,22 @@ def hdf5dataset_fixture(hdf5file_fixture):
 @pytest.fixture()
 def datafile_yaml():
     return io.StringIO("""
-    test:
-      type: hdf5
-      file_path: test.hdf5
-      group_name: test
-      input_dataset: input
-      output_dataset: output
-    arff_test:
-        type: arff
-        file_path: test.arff
-    delim_test:
-        type: character_delimited
-        file_path: test.ssv
-        delimiter: '\s+'
-    failure_test:
-        type: unknown
+    datasets:
+      test:
+        format: hdf5
+        path: test.hdf5
+        group_name: test
+        input_dataset: input
+        output_dataset: output
+      arff_test:
+          format: arff
+          path: test.arff
+      delim_test:
+          format: character_delimited
+          path: test.ssv
+          delimiter: '\s+'
+      failure_test:
+          format: unknown
     """)
 
 
