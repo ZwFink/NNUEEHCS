@@ -289,62 +289,32 @@ def test_space_delim_dataset_from_file(space_delim_dset_fixture, space_delim_gro
 
 
 
-def test_space_delim_dataset(space_delim_file_fixture):
+def test_space_delim_dataset(space_delim_file_fixture, space_delim_ground_truth):
     dset = CharacterDelimitedDataset(space_delim_file_fixture, '\s+')
     space_delim_file_fixture.seek(0)
     assert dset.file_has_header(space_delim_file_fixture, '\s+') == False
 
-    gtruth_ipt = torch.tensor([[0.0, 0.0, 0.0],
-                               [1.111111, 1.111111, 1.111111],
-                               [2.222222, 2.222222, 2.222222],
-                               [3.333333, 3.333333, 3.333333],
-                               [4.444444, 4.444444, 4.444444],
-                               [5.555555, 5.555555, 5.555555],
-                               [6.666666, 6.666666, 6.666666]
-                               ],
-                               dtype=torch.float64)
-    gtruth_opt = torch.tensor([0.0, 1.111111, 2.222222, 3.333333, 4.444444, 5.555555, 6.666666],
-                                dtype=torch.float64)
+    gtruth_ipt, gtruth_opt = space_delim_ground_truth
     assert (dset.input == gtruth_ipt).all()
     assert (dset.output == gtruth_opt).all()
 
 
-def test_space_delim_dataset_header(space_delim_file_fixture_header):
+def test_space_delim_dataset_header(space_delim_file_fixture_header, space_delim_ground_truth):
     dset = CharacterDelimitedDataset(space_delim_file_fixture_header, '\s+')
     space_delim_file_fixture_header.seek(0)
     assert dset.file_has_header(space_delim_file_fixture_header, '\s+') == True
 
-    gtruth_ipt = torch.tensor([[0.0, 0.0, 0.0],
-                               [1.111111, 1.111111, 1.111111],
-                               [2.222222, 2.222222, 2.222222],
-                               [3.333333, 3.333333, 3.333333],
-                               [4.444444, 4.444444, 4.444444],
-                               [5.555555, 5.555555, 5.555555],
-                               [6.666666, 6.666666, 6.666666]
-                               ],
-                               dtype=torch.float64)
-    gtruth_opt = torch.tensor([0.0, 1.111111, 2.222222, 3.333333, 4.444444, 5.555555, 6.666666],
-                                dtype=torch.float64)
+    gtruth_ipt, gtruth_opt = space_delim_ground_truth
     assert (dset.input == gtruth_ipt).all()
     assert (dset.output == gtruth_opt).all()
 
 
-def test_comma_delim_dataset_header(comma_delim_file_fixture_header):
+def test_comma_delim_dataset_header(comma_delim_file_fixture_header, space_delim_ground_truth):
     dset = CharacterDelimitedDataset(comma_delim_file_fixture_header, ',')
     comma_delim_file_fixture_header.seek(0)
     assert dset.file_has_header(comma_delim_file_fixture_header, ',') == True
 
-    gtruth_ipt = torch.tensor([[0.0, 0.0, 0.0],
-                               [1.111111, 1.111111, 1.111111],
-                               [2.222222, 2.222222, 2.222222],
-                               [3.333333, 3.333333, 3.333333],
-                               [4.444444, 4.444444, 4.444444],
-                               [5.555555, 5.555555, 5.555555],
-                               [6.666666, 6.666666, 6.666666]
-                               ],
-                               dtype=torch.float64)
-    gtruth_opt = torch.tensor([0.0, 1.111111, 2.222222, 3.333333, 4.444444, 5.555555, 6.666666],
-                                dtype=torch.float64)
+    gtruth_ipt, gtruth_opt = space_delim_ground_truth
     assert (dset.input == gtruth_ipt).all()
     assert (dset.output == gtruth_opt).all()
 
