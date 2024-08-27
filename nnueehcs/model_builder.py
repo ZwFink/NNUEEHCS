@@ -79,6 +79,7 @@ class InfoGrabbBase:
     def num_layers(self):
         return len(self.descr)
 
+
 class CNNInfoGrabber(InfoGrabbBase):
     def __init__(self, descr):
         super().__init__(descr)
@@ -94,6 +95,7 @@ class CNNInfoGrabber(InfoGrabbBase):
 
     def set_num_inputs(self, num_inputs):
         self.descr[0]['Conv2d']['args'][0] = num_inputs
+
 
 class MLPInfoGrabber(InfoGrabbBase):
     def __init__(self, descr):
@@ -111,9 +113,11 @@ class MLPInfoGrabber(InfoGrabbBase):
     def set_num_inputs(self, num_inputs):
         self.descr[0]['Linear']['args'][0] = num_inputs
 
+
 class ModelInfo:
     def __init__(self):
         pass
+
     @classmethod
     def get_info_grabber(cls, model_descr):
         if 'Conv2d' in model_descr[0]:
@@ -138,7 +142,7 @@ class ModelBuilder:
         self.update_info(info)
         return info
 
-    
+
 class DeltaUQMLPModelBuilder(ModelBuilder):
     def __init__(self, base_descr, duq_descr):
         super().__init__(base_descr)
@@ -150,12 +154,19 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
 
     def update_info(self, info):
         estimator = self.duq_descr['estimator']
-        # May want to look into doing a Mixin later,
-        # for now this works
+
         def get_estimator(self):
             return estimator
         info.set_num_inputs(2 * info.num_inputs())
         info.get_estimator = types.MethodType(get_estimator, info)
+
+
+class PAGERModelBuilder(DeltaUQMLPModelBuilder):
+    # for now, we will just inherit from DUQ.
+    # Later we can go ahead and update
+    def __init__(self, base_descr, duq_descr):
+        super().__init__(base_descr, duq_descr)
+
 
 class EnsembleModelBuilder(ModelBuilder):
     def __init__(self, base_descr, ensemble_descr):

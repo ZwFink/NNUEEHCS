@@ -1,5 +1,8 @@
 import pytest
-from nnueehcs.model_builder import (build_network, ModelBuilder, DeltaUQMLPModelBuilder, EnsembleModelBuilder)
+from nnueehcs.model_builder import (build_network, ModelBuilder,
+                                    DeltaUQMLPModelBuilder,
+                                    EnsembleModelBuilder,
+                                    PAGERModelBuilder)
 import torch
 import io
 import yaml
