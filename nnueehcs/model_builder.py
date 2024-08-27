@@ -163,7 +163,7 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
 
 class PAGERModelBuilder(DeltaUQMLPModelBuilder):
     # for now, we will just inherit from DUQ.
-    # Later we can go ahead and update
+    # Later update as needed
     def __init__(self, base_descr, duq_descr):
         super().__init__(base_descr, duq_descr)
 
@@ -185,3 +185,8 @@ class EnsembleModelBuilder(ModelBuilder):
         def get_num_models(self):
             return num_models
         info.get_num_models = types.MethodType(get_num_models, info)
+
+
+class KDEModelBuilder(ModelBuilder):
+    def __init__(self, base_descr, kde_descr):
+        super().__init__(base_descr)

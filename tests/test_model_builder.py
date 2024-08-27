@@ -2,7 +2,8 @@ import pytest
 from nnueehcs.model_builder import (build_network, ModelBuilder,
                                     DeltaUQMLPModelBuilder,
                                     EnsembleModelBuilder,
-                                    PAGERModelBuilder)
+                                    PAGERModelBuilder,
+                                    KDEModelBuilder)
 import torch
 import io
 import yaml
@@ -104,6 +105,10 @@ architecture2:
         args: [25, 5]
 delta_uq_model:
     estimator: std
+pager_model:
+    estimator: std
+kde_model:
+    no-op: true
 ensemble_model:
     num_models: 10
 """
@@ -157,7 +162,6 @@ def test_duq_model_builder(model_descr_yaml, duq_architecture1, duq_architecture
     assert info.num_inputs() == 6
     assert info.get_estimator() == 'std'
 
-
     net = model_builder.build()
     assert_models_equal(net, duq_architecture1)
 
@@ -171,6 +175,29 @@ def test_duq_model_builder(model_descr_yaml, duq_architecture1, duq_architecture
 
     net = model_builder.build()
     assert_models_equal(net, duq_architecture2)
+
+
+def test_pager_model_builder(model_descr_yaml, duq_architecture1, duq_architecture2):
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    model_builder = PAGERModelBuilder(model_descr['architecture'], model_descr['pager_model'])
+    net = model_builder.build()
+    assert_models_equal(net, duq_architecture1)
+    info = model_builder.get_info()
+    assert info.is_cnn() is True
+    assert info.is_mlp() is False
+    assert info.num_layers() == 3
+    assert info.num_inputs() == 6
+    assert info.get_estimator() == 'std'
+
+    model_builder2 = PAGERModelBuilder(model_descr['architecture2'], model_descr['pager_model'])
+    net2 = model_builder2.build()
+    assert_models_equal(net2, duq_architecture2)
+    info2 = model_builder2.get_info()
+    assert info2.is_cnn() is False
+    assert info2.is_mlp() is True
+    assert info2.num_layers() == 5
+    assert info2.num_inputs() == 32
+    assert info2.get_estimator() == 'std'
 
 
 def test_ensemble_model_builder(model_descr_yaml):
@@ -198,3 +225,29 @@ def test_ensemble_model_builder(model_descr_yaml):
     assert info2.num_inputs() == 16
 
     assert not hasattr(info2, 'get_estimator')
+
+
+def test_kde_model_builder(model_descr_yaml, architecture1, architecture2):
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    model_builder = KDEModelBuilder(model_descr['architecture'],
+                                    model_descr['kde_model'])
+    arch1 = model_builder.build()
+    assert_models_equal(arch1, architecture1)
+    builder2 = KDEModelBuilder(model_descr['architecture2'],
+                               model_descr['kde_model'])
+    arch2 = builder2.build()
+    assert_models_equal(arch2, architecture2)
+
+    info = model_builder.get_info()
+    assert info.is_cnn() is True
+    assert info.is_mlp() is False
+    assert info.num_layers() == 3
+    assert info.num_inputs() == 3
+
+    info2 = builder2.get_info()
+    assert info2.is_cnn() is False
+    assert info2.is_mlp() is True
+    assert info2.num_layers() == 5
+    assert info2.num_inputs() == 16
+
+    assert not hasattr(info, 'get_estimator')
