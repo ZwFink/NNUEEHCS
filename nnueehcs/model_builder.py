@@ -2,7 +2,7 @@ import torch.nn
 import collections
 import io
 import yaml
-from .models import KDEMLPModel, DeltaUQMLP, EnsembleModel
+from .models import MLPModel, KDEMLPModel, DeltaUQMLP, EnsembleModel, PAGERMLP
 import copy
 import types
 
@@ -145,6 +145,15 @@ class ModelBuilder:
         return info
 
 
+class MLPModelBuilder(ModelBuilder):
+    def __init__(self, model_descr, **kwargs):
+        super().__init__(model_descr, **kwargs)
+
+    def build(self):
+        model = super().build()
+        return MLPModel(model, train_config=self.train_config)
+
+
 class DeltaUQMLPModelBuilder(ModelBuilder):
     def __init__(self, base_descr, duq_descr, **kwargs):
         super().__init__(base_descr, **kwargs)
@@ -170,11 +179,30 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
         info.set_num_inputs(2 * info.num_inputs())
 
 
-class PAGERModelBuilder(DeltaUQMLPModelBuilder):
+class PAGERModelBuilder(ModelBuilder):
     # for now, we will just inherit from DUQ.
     # Later update as needed
-    def __init__(self, base_descr, duq_descr, **kwargs):
-        super().__init__(base_descr, duq_descr, **kwargs)
+    def __init__(self, base_descr, pager_descr, **kwargs):
+        super().__init__(base_descr, **kwargs)
+        self.pager_descr = pager_descr
+        self._updated = False
+
+    def build(self):
+        self.update_info(self.get_info())
+        base_model = super().build()
+        return PAGERMLP(base_model, estimator=self.pager_descr['estimator'])
+
+    def update_info(self, info):
+        estimator = self.pager_descr['estimator']
+
+        def get_estimator(self):
+            return estimator
+        info.get_estimator = types.MethodType(get_estimator, info)
+        if self._updated:
+            return
+        self._updated = True
+        info.set_num_inputs(2 * info.num_inputs())
+
 
 
 class EnsembleModelBuilder(ModelBuilder):

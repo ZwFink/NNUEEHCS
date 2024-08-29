@@ -120,3 +120,7 @@ class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
         loss = self.loss(y_hat, torch.cat((y, y), dim=0))
         self.log('train_loss', loss)
         return loss
+
+
+class PAGERMLP(DeltaUQMLP):
+    pass

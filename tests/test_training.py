@@ -1,6 +1,11 @@
 import pytest
 import torch
-from nnueehcs.model_builder import EnsembleModelBuilder, KDEModelBuilder, DeltaUQMLPModelBuilder
+from nnueehcs.model_builder import (EnsembleModelBuilder, 
+                                    KDEModelBuilder, 
+                                    DeltaUQMLPModelBuilder,
+                                    MLPModelBuilder,
+                                    PAGERModelBuilder
+                                    )
 import pytorch_lightning as L
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import pandas as pd
@@ -83,6 +88,17 @@ def prediction_assertions(model):
     assert torch.allclose(y, model(x))
 
 
+def test_builder(trainer_config, training_config, network_descr, train_dataloader):
+    trainer, logger = get_trainer(trainer_config, 'mlp')
+
+    mlp = MLPModelBuilder(network_descr, train_config=training_config).build()
+    print(mlp)
+    trainer.fit(mlp, train_dataloader, train_dataloader)
+
+    model_accuracy_assertions(logger.log_dir)
+    prediction_assertions(mlp)
+
+
 def test_ensembles(trainer_config, training_config, network_descr, train_dataloader):
     trainer, logger = get_trainer(trainer_config, 'ensembles')
 
@@ -113,3 +129,14 @@ def test_duq(trainer_config, training_config, network_descr, train_dataloader):
 
     model_accuracy_assertions(logger.log_dir)
     prediction_assertions(duq)
+
+
+def test_pager(trainer_config, training_config, network_descr, train_dataloader):
+    trainer, logger = get_trainer(trainer_config, 'kde')
+
+    pager = PAGERModelBuilder(network_descr, {'estimator': 'std'}, train_config=training_config).build()
+    print(pager)
+    trainer.fit(pager, train_dataloader, train_dataloader)
+
+    model_accuracy_assertions(logger.log_dir)
+    prediction_assertions(pager)
