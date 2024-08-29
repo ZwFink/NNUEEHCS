@@ -9,6 +9,7 @@ from nnueehcs.model_builder import (EnsembleModelBuilder,
 import pytorch_lightning as L
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import pandas as pd
+import numpy as np
 
 
 def is_within_tolerance(number, target, tolerance):
@@ -63,10 +64,14 @@ def cleanup_files():
         os.remove('model.pth')
 
 
-def get_trainer(trainer_config, name):
+def get_trainer(trainer_config, name, callbacks=None):
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.01, patience=200, verbose=False, mode="min")
     logger = L.loggers.CSVLogger("logs", name)
-    return L.Trainer(callbacks=[early_stop_callback], **trainer_config, logger=logger), logger
+    cbs = [early_stop_callback]
+    if callbacks:
+        cbs.extend(callbacks)
+
+    return L.Trainer(callbacks=cbs, **trainer_config, logger=logger), logger
 
 
 def model_accuracy_assertions(log_dir):
@@ -111,20 +116,30 @@ def test_ensembles(trainer_config, training_config, network_descr, train_dataloa
 
 
 def test_kde(trainer_config, training_config, network_descr, train_dataloader):
-    trainer, logger = get_trainer(trainer_config, 'kde')
 
     kde = KDEModelBuilder(network_descr, {}, train_config=training_config).build()
+    trainer, logger = get_trainer(trainer_config, 'kde', callbacks=kde.get_callbacks())
     trainer.fit(kde, train_dataloader, train_dataloader)
 
     model_accuracy_assertions(logger.log_dir)
     prediction_assertions(kde)
+
+    kde_estimator = kde.kde
+    assert kde_estimator is not None
+    assert kde_estimator.bandwidth == 'scott'
+    assert kde_estimator.rtol == 0.1
+
+    a_batch = next(iter(train_dataloader))[0].detach().cpu().numpy()
+    scores = np.exp(kde_estimator.score_samples(a_batch))
+    avg_score = scores.mean()
+
+    assert is_within_tolerance(avg_score, 0.032892700285257835, 0.20)
 
 
 def test_duq(trainer_config, training_config, network_descr, train_dataloader):
     trainer, logger = get_trainer(trainer_config, 'kde')
 
     duq = DeltaUQMLPModelBuilder(network_descr, {'estimator': 'std'}, train_config=training_config).build()
-    print(duq)
     trainer.fit(duq, train_dataloader, train_dataloader)
 
     model_accuracy_assertions(logger.log_dir)
@@ -135,7 +150,6 @@ def test_pager(trainer_config, training_config, network_descr, train_dataloader)
     trainer, logger = get_trainer(trainer_config, 'kde')
 
     pager = PAGERModelBuilder(network_descr, {'estimator': 'std'}, train_config=training_config).build()
-    print(pager)
     trainer.fit(pager, train_dataloader, train_dataloader)
 
     model_accuracy_assertions(logger.log_dir)

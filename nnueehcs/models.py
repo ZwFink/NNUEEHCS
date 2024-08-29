@@ -77,6 +77,9 @@ class WrappedModelBase(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
 
+    def get_callbacks(self):
+        return []
+
 
 class EnsembleModel(WrappedModelBase):
     def __init__(self, models, **kwargs):
@@ -101,7 +104,40 @@ class MLPModel(WrappedModelBase):
 
 
 class KDEMLPModel(MLPModel):
-    pass
+    def __init__(self, base_model, bandwidth='scott', rtol=0.1, train_fit_prop=1.0, **kwargs):
+        super(KDEMLPModel, self).__init__(base_model, **kwargs)
+        self.bandwidth = bandwidth
+        self.rtol = rtol
+        self.kde = None
+        self.train_fit_prop = train_fit_prop
+
+    def fit_kde(self, data):
+        from sklearn.neighbors import KernelDensity
+        kde = KernelDensity(bandwidth=self.bandwidth, rtol=self.rtol)
+        # randomly select 'train_fit_prop' of the data
+        train_idxes = torch.randperm(len(data))[:int(self.train_fit_prop * len(data))]
+        train_data = data[train_idxes].detach().numpy()
+        kde.fit(train_data)
+        self.kde = kde
+
+    class KDEFitCallback(L.callbacks.Callback):
+        def __init__(self):
+            super().__init__()
+            self._train_data_to_fit = []
+            self._epochs = 0
+
+        def on_train_epoch_end(self, trainer, pl_module):
+            if self._epochs == 0:
+                trn_data = torch.cat(self._train_data_to_fit)
+                pl_module.fit_kde(trn_data)
+            self._epochs += 1
+
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            if self._epochs == 0:
+                self._train_data_to_fit.append(batch[0])
+
+    def get_callbacks(self):
+        return [KDEMLPModel.KDEFitCallback()]
 
 
 class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
