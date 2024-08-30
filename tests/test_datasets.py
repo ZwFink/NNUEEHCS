@@ -326,3 +326,68 @@ def test_hdf5datasetreader(datafile_yaml, hdf5dataset_fixture):
 
     assert (dset.input == gtruth_ipt).all()
     assert (dset.output == gtruth_opt).all()
+
+
+@pytest.fixture()
+def datafile_yaml2():
+    return io.StringIO("""
+      datasets:
+        delim_train:
+            format: character_delimited
+            path: partition_test.ssv
+            delimiter: ','
+            percentiles: '[0, 10], [40, 75]'
+        delim_test:
+              format: character_delimited
+              partition_test: test.ssv
+              delimiter: ','
+              percentiles: '[76, 90], [91, 100]'
+    """)
+
+
+class CharDelimitedFile:
+    def __init__(self, filename: str, delimiter: str):
+        self.filename = filename
+        self.delimiter = delimiter
+        self.write_to_file()
+
+    def write_to_file(self):
+        with open(self.filename, 'w') as f:
+            for i in range(1, 101):
+                fi = float(i)
+                f.write(f'{fi}{self.delimiter}{101+fi}{self.delimiter}{fi}\n')
+
+    def __del__(self):
+        os.remove(self.filename)
+
+
+@pytest.fixture()
+def char_delim_file():
+    return CharDelimitedFile('partition_test.ssv', ',')
+
+
+@pytest.fixture()
+def char_delim_dset(datafile_yaml2, char_delim_file):
+    return read_dataset_from_yaml(datafile_yaml2, 'delim_train')
+
+
+def test_dataset_split(char_delim_dset):
+    ipt = torch.tensor([[i, 101+i] for i in range(1, 101)], dtype=torch.int64)
+    opt = torch.tensor([i for i in range(1, 101)], dtype=torch.int64)
+
+    print(char_delim_dset.input.dtype, ipt.dtype)
+    assert (char_delim_dset.input == ipt).all()
+    assert (char_delim_dset.output == opt).all()
+
+    percentiles = char_delim_dset.get_percentiles()
+    assert percentiles == [(0, 10), (40, 75)]
+
+
+    partitioned = char_delim_dset.percentile_partition(percentiles)
+
+    other_percentiles = [(10, 40), (75, 90), (90, 100)]
+    other_partitioned = char_delim_dset.percentile_partition(other_percentiles)
+
+    part_combined = torch.cat([partitioned[1], other_partitioned[1]])
+    pc_sorted = part_combined[part_combined.argsort()]
+    assert (pc_sorted == char_delim_dset.output).all()
