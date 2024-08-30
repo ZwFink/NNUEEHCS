@@ -342,6 +342,10 @@ def datafile_yaml2():
               partition_test: test.ssv
               delimiter: ','
               percentiles: '[76, 90], [91, 100]'
+        delim_train_no_percentiles:
+            format: character_delimited
+            path: partition_test.ssv
+            delimiter: ','
     """)
 
 
@@ -368,10 +372,12 @@ def char_delim_file():
 
 @pytest.fixture()
 def char_delim_dset(datafile_yaml2, char_delim_file):
-    return read_dataset_from_yaml(datafile_yaml2, 'delim_train')
+    dset = read_dataset_from_yaml(datafile_yaml2, 'delim_train')
+    datafile_yaml2.seek(0)
+    return dset
 
 
-def test_dataset_split(char_delim_dset):
+def test_dataset_split(char_delim_dset, datafile_yaml2):
     ipt = torch.tensor([[i, 101+i] for i in range(1, 101)], dtype=torch.int64)
     opt = torch.tensor([i for i in range(1, 101)], dtype=torch.int64)
 
@@ -391,3 +397,10 @@ def test_dataset_split(char_delim_dset):
     part_combined = torch.cat([partitioned[1], other_partitioned[1]])
     pc_sorted = part_combined[part_combined.argsort()]
     assert (pc_sorted == char_delim_dset.output).all()
+
+
+    all_partitioned = char_delim_dset.percentile_partition([(0, 100)])
+    assert (all_partitioned[1] == char_delim_dset.output).all()
+
+    no_percentiles = read_dataset_from_yaml(datafile_yaml2, 'delim_train_no_percentiles')
+    assert (no_percentiles.output == char_delim_dset.output).all()

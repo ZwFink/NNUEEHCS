@@ -27,13 +27,16 @@ class DatasetCommon():
         return torch.tensor(self.output)
 
     def get_percentiles(self):
-        percs = self.kwargs['percentiles']
-        parsed = percentile_re.findall(percs)
-        opt_percs = list()
-        for p in parsed:
-            lower, uper = int(p[0]), int(p[1])
-            opt_percs.append((lower, uper))
-        return opt_percs
+        try:
+            percs = self.kwargs['percentiles']
+            parsed = percentile_re.findall(percs)
+            opt_percs = list()
+            for p in parsed:
+                lower, uper = int(p[0]), int(p[1])
+                opt_percs.append((lower, uper))
+            return opt_percs
+        except KeyError:
+            return [(0, 100)]
 
 
     def percentile_partition(self, percentiles):
