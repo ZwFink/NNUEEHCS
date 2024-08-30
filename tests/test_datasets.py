@@ -39,8 +39,8 @@ class FixtureHDF5File:
             ipt[...] = np.random.rand(*self.shape)
             opt[...] = np.random.rand(*self.shape)
 
-            self.ipt_groundtruth = ipt[...].copy()
-            self.opt_groundtruth = opt[...].copy()
+            self.ipt_groundtruth = torch.tensor(ipt[...])
+            self.opt_groundtruth = torch.tensor(opt[...])
 
     def __del__(self):
         self.delete_file(self.filename)
@@ -341,7 +341,6 @@ def datafile_yaml2():
               format: character_delimited
               partition_test: test.ssv
               delimiter: ','
-              percentiles: '[76, 90], [91, 100]'
         delim_train_no_percentiles:
             format: character_delimited
             path: partition_test.ssv
@@ -378,29 +377,33 @@ def char_delim_dset(datafile_yaml2, char_delim_file):
 
 
 def test_dataset_split(char_delim_dset, datafile_yaml2):
-    ipt = torch.tensor([[i, 101+i] for i in range(1, 101)], dtype=torch.int64)
-    opt = torch.tensor([i for i in range(1, 101)], dtype=torch.int64)
+    ipt = torch.tensor([[i, 101+i] for i in range(1, 101)], dtype=torch.float64)
+    opt = torch.tensor([i for i in range(1, 101)], dtype=torch.float64)
+    slc1, slc2 = slice(0, 10), slice(40, 75)
 
-    print(char_delim_dset.input.dtype, ipt.dtype)
-    assert (char_delim_dset.input == ipt).all()
-    assert (char_delim_dset.output == opt).all()
+    slced_ipt = torch.cat([ipt[slc1], ipt[slc2]])
+    slced_opt = torch.cat([opt[slc1], opt[slc2]])
+
+
+    assert (char_delim_dset.input == slced_ipt).all()
+    assert (char_delim_dset.output == slced_opt).all()
 
     percentiles = char_delim_dset.get_percentiles()
     assert percentiles == [(0, 10), (40, 75)]
 
 
-    partitioned = char_delim_dset.percentile_partition(percentiles)
+    no_percentiles = read_dataset_from_yaml(datafile_yaml2, 'delim_train_no_percentiles')
+    partitioned = no_percentiles.percentile_partition(percentiles)
 
     other_percentiles = [(10, 40), (75, 90), (90, 100)]
-    other_partitioned = char_delim_dset.percentile_partition(other_percentiles)
+    other_partitioned = no_percentiles.percentile_partition(other_percentiles)
 
     part_combined = torch.cat([partitioned[1], other_partitioned[1]])
     pc_sorted = part_combined[part_combined.argsort()]
-    assert (pc_sorted == char_delim_dset.output).all()
+    assert (pc_sorted == opt).all()
 
 
-    all_partitioned = char_delim_dset.percentile_partition([(0, 100)])
-    assert (all_partitioned[1] == char_delim_dset.output).all()
+    all_partitioned = no_percentiles.percentile_partition([(0, 100)])
+    assert (all_partitioned[1] == opt).all()
 
-    no_percentiles = read_dataset_from_yaml(datafile_yaml2, 'delim_train_no_percentiles')
-    assert (no_percentiles.output == char_delim_dset.output).all()
+    assert (no_percentiles.output == opt).all()
