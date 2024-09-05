@@ -422,19 +422,22 @@ def test_dtype_conversion(char_delim_dset, datafile_yaml2):
 
 def test_dataset_with_length_cutoff(char_delim_dset):
     dset = char_delim_dset
-    dset.kwargs['stop'] = 10
+    dset.kwargs['subset'] = dict()
+    subset = dset.kwargs['subset']
+    subset['stop'] = 10
     dset._apply_slice()
     assert len(dset) == 10
     assert len(dset.input) == 10
     assert len(dset.output) == 10
 
-    dset.kwargs['stop'] = 100
+    subset['stop'] = 100
     dset._apply_slice()
     assert len(dset) == 10
     assert len(dset.input) == 10
     assert len(dset.output) == 10
 
-    dset.kwargs['stop'] = 5
+    subset['stop'] = 10
+    subset['step'] = 2
     dset._apply_slice()
     assert len(dset) == 5
     assert len(dset.input) == 5

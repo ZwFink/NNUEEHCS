@@ -94,14 +94,15 @@ class DatasetCommon():
 
     def _apply_slice(self):
         try:
-            if 'step' not in self.kwargs:
-                self.kwargs['step'] = 1
-            if 'start' not in self.kwargs:
-                self.kwargs['start'] = 0
+            subset = self.kwargs['subset']
+            if 'step' not in subset:
+                subset['step'] = 1
+            if 'start' not in subset:
+                subset['start'] = 0
 
-            start = self.kwargs['start']
-            stop = self.kwargs['stop']
-            step = self.kwargs['step']
+            start = subset['start']
+            stop = subset['stop']
+            step = subset['step']
             slc = slice(start, stop, step)
             self.input = self.input[slc]
             self.output = self.output[slc]
