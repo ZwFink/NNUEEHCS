@@ -18,7 +18,7 @@ class DatasetCommon():
         original_init = cls.__init__
         def new_init(self, *args, **kwargs):
             original_init(self, *args, **kwargs)
-            self.len = len(self.input)
+            self._apply_slice()
             self._percentile_partition()
             self._dtype_conversion()
         cls.__init__ = new_init
@@ -26,6 +26,10 @@ class DatasetCommon():
 
     def __len__(self):
         return self.len
+
+    @property
+    def len(self):
+        return len(self.input)
 
     def __getitem__(self, idx):
         return (self.input[idx],
@@ -65,11 +69,11 @@ class DatasetCommon():
         percentile_dict = dict(zip(unique_percentiles, percentile_values))
         
         mask = torch.zeros(len(output_tensor), dtype=torch.bool)
-        
+
         for lower, upper in percentiles:
             lower_value = percentile_dict[lower]
             upper_value = percentile_dict[upper]
-            mask |= (output_tensor >= lower_value) & (output_tensor <= upper_value)
+            mask |= ((output_tensor >= lower_value) & (output_tensor <= upper_value)).view(len(output_tensor))
         
         partitioned_input = input_tensor[mask]
         partitioned_output = output_tensor[mask]
@@ -88,9 +92,32 @@ class DatasetCommon():
         except KeyError:
             pass
 
+    def _apply_slice(self):
+        try:
+            if 'step' not in self.kwargs:
+                self.kwargs['step'] = 1
+            if 'start' not in self.kwargs:
+                self.kwargs['start'] = 0
+
+            start = self.kwargs['start']
+            stop = self.kwargs['stop']
+            step = self.kwargs['step']
+            slc = slice(start, stop, step)
+            self.input = self.input[slc]
+            self.output = self.output[slc]
+        except KeyError:
+            pass
+
+    @property
+    def dtype(self):
+        return self.input.dtype
+
+    def train_test_split(self, test_proportion: float):
+        test_size = int(len(self) * test_proportion)
+        train_size = len(self) - test_size
+        return torch.utils.data.random_split(self, [train_size, test_size])
+
     
-
-
 class HDF5Dataset(DatasetCommon, Dataset):
     def __init__(self, path: str, group_name: str, 
                  input_dataset: str, output_dataset: str,
@@ -106,8 +133,8 @@ class HDF5Dataset(DatasetCommon, Dataset):
                                                     input_dataset,
                                                     output_dataset
                                                     )
-        self.input = torch.tensor(self.input)
-        self.output = torch.tensor(self.output)
+        self.input = self.input
+        self.output = self.output
         assert len(self.input) == len(self.output)
 
     def get_datasets(self, filename, group_name, ipt_dataset, opt_dataset):
@@ -121,8 +148,10 @@ class HDF5Dataset(DatasetCommon, Dataset):
                   f" assuming this is not necessary and removing it."
                   f" Reshaping to {ipt_dataset.shape[1:]}"
                   )
-            ipt_dataset = torch.tensor(ipt_dataset[0])
-            opt_dataset = torch.tensor(opt_dataset[0])
+            ipt_dataset = ipt_dataset[0]
+            opt_dataset = opt_dataset[0]
+        ipt_dataset = torch.tensor(ipt_dataset)
+        opt_dataset = torch.tensor(opt_dataset)
         return ipt_dataset, opt_dataset
 
     @property

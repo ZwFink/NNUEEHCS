@@ -418,3 +418,24 @@ def test_dtype_conversion(char_delim_dset, datafile_yaml2):
     assert dset.output.dtype == torch.int32
     assert (dset.input == ipt).all()
     assert (dset.output == opt).all()
+
+
+def test_dataset_with_length_cutoff(char_delim_dset):
+    dset = char_delim_dset
+    dset.kwargs['stop'] = 10
+    dset._apply_slice()
+    assert len(dset) == 10
+    assert len(dset.input) == 10
+    assert len(dset.output) == 10
+
+    dset.kwargs['stop'] = 100
+    dset._apply_slice()
+    assert len(dset) == 10
+    assert len(dset.input) == 10
+    assert len(dset.output) == 10
+
+    dset.kwargs['stop'] = 5
+    dset._apply_slice()
+    assert len(dset) == 5
+    assert len(dset.input) == 5
+    assert len(dset.output) == 5
