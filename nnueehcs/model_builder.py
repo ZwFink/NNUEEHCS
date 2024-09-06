@@ -164,7 +164,7 @@ class DeltaUQMLPModelBuilder(ModelBuilder):
         self.update_info(self.get_info())
         base_model = super().build()
         print(base_model)
-        return DeltaUQMLP(base_model, estimator=self.duq_descr['estimator'])
+        return DeltaUQMLP(base_model, **self.duq_descr)
 
     def update_info(self, info):
 
