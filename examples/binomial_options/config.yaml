@@ -1,0 +1,50 @@
+---
+trainer:
+  accelerator: gpu
+  max_epochs: 10
+  limit_train_batches: 1000
+  limit_val_batches: 1000
+  log_every_n_steps: 5
+  num_sanity_val_steps: 0
+  gradient_clip_val: 5
+training:
+  batch_size: 32
+  loss: l1_loss
+  validation_split: 0.2
+
+model:
+  architecture:
+    - Linear:
+        args: [5, 25]
+    - LeakyReLU:
+        negative_slope: 0.1
+    - Linear:
+        args: [25, 25]
+    - LeakyReLU:
+        negative_slope: 0.1
+    - Linear:
+        args: [25, 1]
+
+  ensemble_model:
+    num_models: 3
+  kde:
+    bandwidth: 'scott'
+  delta_uq:
+    num_anchors: 5
+    estimator: 'std'
+
+datasets:
+  bo_ds:
+    format: hdf5
+    path: '/scratch/mzu/zanef2/surrogates/training_data/binomial_options_16777216.h5'
+    group_name: BinomialOptionsKernel
+    input_dataset: input
+    output_dataset: output
+    percentiles: '[0, 30], [60, 100]'
+  bo_ood:
+    format: hdf5
+    path: '/scratch/mzu/zanef2/surrogates/training_data/binomial_options_16777216.h5'
+    group_name: BinomialOptionsKernel
+    input_dataset: input
+    output_dataset: output
+    percentiles: '[30, 60]'
