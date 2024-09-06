@@ -116,7 +116,7 @@ class KDEMLPModel(MLPModel):
         kde = KernelDensity(bandwidth=self.bandwidth, rtol=self.rtol)
         # randomly select 'train_fit_prop' of the data
         train_idxes = torch.randperm(len(data))[:int(self.train_fit_prop * len(data))]
-        train_data = data[train_idxes].detach().cpu().numpy().reshape(-1, 1)
+        train_data = data[train_idxes].detach().cpu().numpy()
         kde.fit(train_data)
         self.kde = kde
 
@@ -128,7 +128,7 @@ class KDEMLPModel(MLPModel):
         if return_ue:
             import time
             test = time.time()
-            log_dens = self.kde.score_samples(pred[0:20000].detach().cpu().numpy().reshape(-1, 1))
+            log_dens = self.kde.score_samples(x.detach().cpu().numpy())
             dens = torch.exp(torch.tensor(log_dens))
             tend = time.time()
             print(tend-test)
