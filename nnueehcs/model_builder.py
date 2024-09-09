@@ -190,7 +190,7 @@ class PAGERModelBuilder(ModelBuilder):
     def build(self):
         self.update_info(self.get_info())
         base_model = super().build()
-        return PAGERMLP(base_model, estimator=self.pager_descr['estimator'])
+        return PAGERMLP(base_model, **self.pager_descr)
 
     def update_info(self, info):
         estimator = self.pager_descr['estimator']

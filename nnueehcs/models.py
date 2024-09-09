@@ -214,5 +214,75 @@ class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
         return [DeltaUQMLP.DeltaUQGetAnchorsCallback()]
 
 
-class PAGERMLP(DeltaUQMLP):
-    pass
+class PAGERMLP(DeltaUQMLP, WrappedModelBase):
+    def forward(self, x, return_ue=False):
+        res = super().forward(x, return_ue)
+        if not return_ue:
+            return res
+
+        pred, uncertainty = res
+        conformal_scores = self._score_samples(x, self.anchors,
+                                               self.anchors_Y)
+
+        return pred, uncertainty, conformal_scores
+
+    def _anchored_predictions(self, x, anchors):
+        p_matrix = list()
+        for sample in x:
+            if len(sample.shape) == 1:
+                sample = sample.unsqueeze(0)
+            p = deltaUQ_MLP.forward(self,
+                                    anchors,
+                                    anchors=sample,
+                                    n_anchors=len(sample),
+                                    return_pred_matrix=True
+                                    )
+            p_matrix.append(p)
+        return torch.concat(p_matrix).squeeze(-1)
+
+
+    def _score_samples(self, x, anchors_X, anchors_Y):
+        p_matrix = self._anchored_predictions(x, anchors_X)
+        score = torch.max(torch.abs(p_matrix - anchors_Y.T), dim=1)[0]
+        return score
+
+
+    def get_callbacks(self):
+        return [PAGERMLP.PAGERGetAnchorsCallback()]
+
+    @property
+    def anchors_Y(self):
+        return self._anchors_Y
+    
+    @anchors_Y.setter
+    def anchors_Y(self, value):
+        if not hasattr(self, '_anchors_Y'):
+            self.register_buffer('_anchors_Y', value)
+        else:
+            self._anchors_Y = value.detach().clone()
+
+    class PAGERGetAnchorsCallback(L.callbacks.Callback):
+        # Like DeltaUQGetAnchorsCallback, but we need
+        # the input and outputs of the anchors
+        def __init__(self):
+            super().__init__()
+            self._anchor_X = []
+            self._anchor_Y = []
+            self._epochs = 0
+
+        def on_train_epoch_end(self, trainer, pl_module):
+            if self._epochs == 0:
+                nanchors = pl_module.num_anchors
+                anchor_X = torch.cat(self._anchor_X)
+                anchor_Y = torch.cat(self._anchor_Y)
+                pl_module.anchors = anchor_X[0:nanchors].detach().clone()
+                pl_module.anchors_Y = anchor_Y[0:nanchors].detach().clone()
+            self._epochs += 1
+
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            bs = batch[0].shape[0]
+            if self._epochs == 0 and bs*len(self._anchor_X) < pl_module.num_anchors:
+                self._anchor_X.append(batch[0].detach())
+                self._anchor_Y.append(batch[1].detach())
+
+
