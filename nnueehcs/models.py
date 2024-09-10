@@ -74,7 +74,7 @@ class WrappedModelBase(pl.LightningModule):
         self.logger.log_hyperparams(all_params)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
         return optimizer
 
     def get_callbacks(self):
@@ -224,7 +224,7 @@ class PAGERMLP(DeltaUQMLP, WrappedModelBase):
         conformal_scores = self._score_samples(x, self.anchors,
                                                self.anchors_Y)
 
-        return pred, uncertainty, conformal_scores
+        return pred, (uncertainty, conformal_scores)
 
     def _anchored_predictions(self, x, anchors):
         p_matrix = list()
