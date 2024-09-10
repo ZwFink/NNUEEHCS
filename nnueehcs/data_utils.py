@@ -172,7 +172,7 @@ class ARFFDataSet(DatasetCommon, Dataset):
         import pandas as pd
         data, meta = arff.loadarff(path)
         df = pd.DataFrame(data)
-        return df.iloc[:, :-1].values, df.iloc[:, -1].values
+        return df.iloc[:, :-1].values, np.expand_dims(df.iloc[:, -1].values, -1)
 
     @property
     def shape(self):

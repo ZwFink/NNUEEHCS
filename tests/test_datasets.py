@@ -174,7 +174,7 @@ def test_arffdatasetreader(arff_file_fixture):
                                ],
                                dtype=torch.float64)
     gtruth_opt = torch.tensor([0.0, 1.111111, 2.222222, 3.333333, 4.444444, 5.555555, 6.666666],
-                              dtype=torch.float64)
+                              dtype=torch.float64).view(-1, 1)
 
     assert (dset.input == gtruth_ipt).all()
     assert (dset.output == gtruth_opt).all()
