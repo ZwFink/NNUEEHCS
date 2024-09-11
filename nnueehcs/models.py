@@ -75,7 +75,8 @@ class WrappedModelBase(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
-        return optimizer
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
 
     def get_callbacks(self):
         return []
