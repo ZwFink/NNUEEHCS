@@ -227,8 +227,10 @@ class EnsembleModelBuilder(ModelBuilder):
 class KDEModelBuilder(ModelBuilder):
     def __init__(self, base_descr, kde_descr, **kwargs):
         super().__init__(base_descr, **kwargs)
+        self.kde_descr = kde_descr
 
     def build(self):
         return KDEMLPModel(super().build(),
+                           **self.kde_descr,
                            train_config=self.train_config
                            )
