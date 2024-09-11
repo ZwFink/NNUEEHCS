@@ -1,4 +1,5 @@
 import pytorch_lightning as L
+import torch
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 def _inst_init_if_not_none(inst, attr, val, default):
@@ -28,3 +29,30 @@ class Trainer(L.Trainer):
 
     def get_callbacks(self):
         return self.callbacks
+
+
+class ModelSavingCallback(L.callbacks.Callback):
+    def __init__(self, monitor = "val_loss", save_path=None, model_name='model.pth'):
+        self.monitor = monitor
+        self.save_path = save_path
+        self.model_name = model_name
+
+    def on_fit_start(self, trainer, pl_module):
+        self.trainer = trainer
+        self.pl_module = pl_module
+
+        if self.save_path is None:
+            self.save_path = self.trainer.logger.log_dir
+
+    def on_validation_end(self, trainer, pl_module):
+        if self.monitor in trainer.callback_metrics:
+            current = trainer.callback_metrics[self.monitor]
+            if not hasattr(self, 'best'):
+                self.best = current
+                self.save_checkpoint(pl_module)
+            elif current < self.best:
+                self.best = current
+                self.save_checkpoint(pl_module)
+
+    def save_checkpoint(self, model):
+        torch.save(model, self.save_path + f'/{self.model_name}')
