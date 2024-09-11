@@ -122,7 +122,7 @@ pager_model:
     estimator: std
     num_anchors: 3
 kde_model:
-    no-op: true
+    bandwidth: scott
 ensemble_model:
     num_models: 10
 """
