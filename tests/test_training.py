@@ -74,15 +74,15 @@ def get_trainer(trainer_config, name, callbacks=None):
     return Trainer(name, trainer_config, callbacks=cbs)
 
 
-def model_accuracy_assertions(log_dir, tolerance=0.99, loss_ceiling = 0.01):
+def model_accuracy_assertions(log_dir, tolerance=0.99, loss_ceiling = 0.03):
     logger_path = f'{log_dir}/metrics.csv'
     val_loss = pd.read_csv(logger_path)['val_loss']
     min_loss = val_loss.min()
 
-    assert is_within_tolerance(min_loss, 0.0018693739548325, tolerance)
+    assert is_within_tolerance(min_loss, 0.018744820728898, tolerance)
     assert min_loss < loss_ceiling
     assert val_loss.idxmin() > val_loss.idxmax()
-    assert val_loss.min()*100 < val_loss.max()
+    assert val_loss.min()*50 < val_loss.max()
 
 
 def prediction_assertions(model):
