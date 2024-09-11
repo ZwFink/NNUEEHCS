@@ -73,7 +73,10 @@ class DatasetCommon():
         for lower, upper in percentiles:
             lower_value = percentile_dict[lower]
             upper_value = percentile_dict[upper]
-            mask |= ((output_tensor >= lower_value) & (output_tensor <= upper_value)).view(len(output_tensor))
+            if lower == 0:
+                mask |= (output_tensor <= upper_value).view(len(output_tensor))
+            else:
+                mask |= ((output_tensor > lower_value) & (output_tensor <= upper_value)).view(len(output_tensor))
         
         partitioned_input = input_tensor[mask]
         partitioned_output = output_tensor[mask]
