@@ -129,7 +129,7 @@ class KDEMLPModel(MLPModel):
     def __init__(self, base_model, bandwidth='scott', rtol=0.1, train_fit_prop=1.0, **kwargs):
         super(KDEMLPModel, self).__init__(base_model, **kwargs)
         self.bandwidth = bandwidth
-        self.rtol = rtol
+        self.rtol = rtol/10000
         self.kde = None
         self.train_fit_prop = train_fit_prop
 
