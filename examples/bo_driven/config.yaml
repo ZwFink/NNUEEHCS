@@ -26,7 +26,7 @@ training:
       type: range
       bounds:
         - 16
-        - 256
+        - 128
     
   validation_split: 0.2
   scaling: true
@@ -425,7 +425,7 @@ uq_methods:
           - 0.3
 
 bo_config:
-  trials: 15
+  trials: 100
   objectives:
   - name: ue_time
     type: minimize
