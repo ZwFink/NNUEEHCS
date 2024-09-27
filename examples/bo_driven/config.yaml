@@ -390,6 +390,18 @@ uq_methods:
       - name: estimator
         type: fixed
         value: 'std'
+  mc_dropout:
+    parameter_space:
+      - name: num_samples
+        type: range
+        bounds:
+          - 5
+          - 32
+      - name: dropout_percent
+        type: range
+        bounds: 
+          - 0.05
+          - 0.3
 
 bo_config:
   trials: 15
