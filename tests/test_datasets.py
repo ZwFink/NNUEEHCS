@@ -382,8 +382,8 @@ def test_dataset_split(char_delim_dset, datafile_yaml2):
     opt = torch.tensor([i for i in range(1, 101)], dtype=torch.float64)
     slc1, slc2 = slice(0, 10), slice(40, 75)
 
-    slced_ipt = torch.cat([ipt[slc1], ipt[slc2]])
-    slced_opt = torch.cat([opt[slc1], opt[slc2]])
+    slced_ipt = torch.cat([ipt[slc1], ipt[slc2]]).reshape(-1, 1)
+    slced_opt = torch.cat([opt[slc1], opt[slc2]]).reshape(-1, 1)
 
 
     assert (char_delim_dset.input == slced_ipt).all()
