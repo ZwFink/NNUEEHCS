@@ -5,8 +5,8 @@ from torch.utils.data import DataLoader
 import time
 import sys
 from nnueehcs.model_builder import (EnsembleModelBuilder, KDEModelBuilder, 
-                                    DeltaUQMLPModelBuilder, PAGERModelBuilder, 
-                                    MCDropoutModelBuilder)
+                                    KNNKDEModelBuilder, DeltaUQMLPModelBuilder, 
+                                    PAGERModelBuilder, MCDropoutModelBuilder)
 from nnueehcs.training import Trainer, ModelSavingCallback
 from nnueehcs.data_utils import get_dataset_from_config
 from nnueehcs.evaluation import get_uncertainty_evaluator
@@ -188,6 +188,8 @@ def get_model_builder_class(uq_method):
         return EnsembleModelBuilder
     elif uq_method == 'kde':
         return KDEModelBuilder
+    elif uq_method == 'knn_kde':
+        return KNNKDEModelBuilder
     elif uq_method == 'delta_uq':
         return DeltaUQMLPModelBuilder
     elif uq_method == 'pager':
