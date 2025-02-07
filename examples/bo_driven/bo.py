@@ -355,7 +355,7 @@ def main(benchmark, uq_method, config, dataset, output, restart):
                               log_dir=output)
         opt_manager = OutputManager(trainer.logger.log_dir, benchmark, append_benchmark_name=False)
 
-        train_dl = DataLoader(dset, batch_size=training_cfg['batch_size'], shuffle=True)
+        train_dl = DataLoader(dset, batch_size=training_cfg['batch_size'], shuffle=True, drop_last=True)
         test_dl = DataLoader(dset, batch_size=training_cfg['batch_size'], shuffle=False)
         train_start = time.time()
         trainer.fit(model, train_dl, test_dl)
