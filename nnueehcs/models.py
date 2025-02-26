@@ -84,6 +84,21 @@ class WrappedModelBase(pl.LightningModule):
     def get_callbacks(self):
         return []
 
+    def compile_model(self):
+        return self
+    
+    def _restore_original_components(self):
+        return self
+        
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Restore original components before serialization
+        self._restore_original_components()
+        return state
+        
+    def recompile(self):
+        return self.compile_model()
+
 
 class EnsembleModel(WrappedModelBase):
     def __init__(self, models, **kwargs):
@@ -94,8 +109,23 @@ class EnsembleModel(WrappedModelBase):
     def call_single_model(self, params, buffers, x):
         return torch.func.functional_call(self.models[0], (params, buffers), (x,))
 
+    def compile_model(self):
+        try:
+            # We can't compile the models directly because they're used with vmap
+            # Instead, we'll create a compiled version of call_single_model
+            self._compiled_call_single_model = torch.compile(self.call_single_model)
+            self._using_compiled = True
+            print(f"Successfully compiled {self.__class__.__name__}.call_single_model")
+        except Exception as e:
+            self._using_compiled = False
+            print(f"Failed to compile {self.__class__.__name__}.call_single_model: {str(e)}")
+        return self
+        
     def forward(self, x, return_ue=False):
-        outputs = torch.vmap(self.call_single_model, (0, 0, None))(self.params, self.buffers, x)
+        if hasattr(self, '_using_compiled') and self._using_compiled:
+            outputs = torch.vmap(self._compiled_call_single_model, (0, 0, None))(self.params, self.buffers, x)
+        else:
+            outputs = torch.vmap(self.call_single_model, (0, 0, None))(self.params, self.buffers, x)
 
         if return_ue:
             std = outputs.std(0)
@@ -137,13 +167,40 @@ class MCDropoutModel(WrappedModelBase):
     def call_single_forward(self, params, buffers, x):
         return torch.func.functional_call(self.model, (params, buffers), (x,))
 
+    def compile_model(self):
+        try:
+            # Store original function if not already stored
+            if not hasattr(self, '_original_call_single_forward'):
+                self._original_call_single_forward = self.call_single_forward
+                
+            # We can't compile the model directly because it's used with vmap
+            # Instead, we'll create a compiled version of call_single_forward
+            self._compiled_call_single_forward = torch.compile(self.call_single_forward)
+            self._using_compiled = True
+            print(f"Successfully compiled {self.__class__.__name__}.call_single_forward")
+        except Exception as e:
+            self._using_compiled = False
+            print(f"Failed to compile {self.__class__.__name__}.call_single_forward: {str(e)}")
+        return self
+        
+    def _restore_original_components(self):
+        if hasattr(self, '_using_compiled') and self._using_compiled:
+            self.call_single_forward = self._original_call_single_forward
+        return self
+
     def forward(self, x, return_ue=False):
         if self.training:
             return self.model(x)
         else:
             self._ensure_stacked()
-            preds = torch.vmap(self.call_single_forward, (0, 0, None), 
-                              randomness='different')(self.params, self.buffers, x)
+            
+            # Use compiled version if available
+            if hasattr(self, '_using_compiled') and self._using_compiled:
+                preds = torch.vmap(self._compiled_call_single_forward, (0, 0, None), 
+                                  randomness='different')(self.params, self.buffers, x)
+            else:
+                preds = torch.vmap(self.call_single_forward, (0, 0, None), 
+                                  randomness='different')(self.params, self.buffers, x)
             
             if return_ue:
                 return preds.mean(0), preds.std(0)
@@ -173,6 +230,25 @@ class MLPModel(WrappedModelBase):
 
     def forward(self, x):
         return self.model(x)
+        
+    def compile_model(self):
+        # Store original model
+        if not hasattr(self, '_original_model'):
+            self._original_model = self.model
+            
+        try:
+            self.model = torch.compile(self._original_model)
+            self._is_compiled = True
+            print(f"Successfully compiled {self.__class__.__name__}.model")
+        except Exception as e:
+            self._is_compiled = False
+            print(f"Failed to compile {self.__class__.__name__}.model: {str(e)}")
+        return self
+        
+    def _restore_original_components(self):
+        if hasattr(self, '_is_compiled') and self._is_compiled:
+            self.model = self._original_model
+        return self
 
 
 class KDEMLPModel(MLPModel):
@@ -228,6 +304,14 @@ class KDEMLPModel(MLPModel):
 
     def get_callbacks(self):
         return [KDEMLPModel.KDEFitCallback()]
+
+    def compile_model(self):
+        try:
+            self.model = torch.compile(self.model)
+            print(f"Successfully compiled {self.__class__.__name__}.model")
+        except Exception as e:
+            print(f"Failed to compile {self.__class__.__name__}.model: {str(e)}")
+        return self
 
 
 class KNNKDEMLPModel(MLPModel):
@@ -333,6 +417,14 @@ class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
 
     def get_callbacks(self):
         return [DeltaUQMLP.DeltaUQGetAnchorsCallback()]
+
+    def compile_model(self):
+        try:
+            self.net = torch.compile(self.net)
+            print(f"Successfully compiled {self.__class__.__name__}.net")
+        except Exception as e:
+            print(f"Failed to compile {self.__class__.__name__}.net: {str(e)}")
+        return self
 
 
 class PAGERMLP(DeltaUQMLP, WrappedModelBase):

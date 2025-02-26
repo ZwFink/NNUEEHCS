@@ -119,13 +119,30 @@ def evaluate_model_metrics(model, dataset_id, dataset_ood, evaluators):
     """
     results = []
     with torch.no_grad():
-        for metric in evaluators.metrics:
-            print(f"Evaluating with {metric.get_name()}")
-            result = metric.evaluate(model, (dataset_id.input, dataset_id.output),
-                                   (dataset_ood.input, dataset_ood.output))
+        try:
+            # Try to compile the model using its own compilation strategy
+            print("Attempting to compile model components...")
+            model.compile_model()
             
-            for objective_name, objective_value in result.items():
-                results.append([metric.get_name(), objective_name, objective_value])
+            for metric in evaluators.metrics:
+                print(f"Evaluating with {metric.get_name()}")
+                result = metric.evaluate(model, (dataset_id.input, dataset_id.output),
+                                      (dataset_ood.input, dataset_ood.output))
+                
+                for objective_name, objective_value in result.items():
+                    results.append([metric.get_name(), objective_name, objective_value])
+                    
+        except Exception as e:
+            print(f"Error during evaluation: {str(e)}")
+            # If compilation or evaluation with compiled model fails, 
+            # fall back to the original model
+            for metric in evaluators.metrics:
+                print(f"Evaluating with {metric.get_name()} (uncompiled)")
+                result = metric.evaluate(model, (dataset_id.input, dataset_id.output),
+                                    (dataset_ood.input, dataset_ood.output))
+                
+                for objective_name, objective_value in result.items():
+                    results.append([metric.get_name(), objective_name, objective_value])
     return results
 
 def find_all_training_runs(results_instance: ResultsInstance) -> list[pd.Series]:
