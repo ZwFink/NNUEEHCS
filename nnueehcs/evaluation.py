@@ -5,6 +5,7 @@ import numpy as np
 import time
 from scipy.stats import wasserstein_distance
 from sklearn.metrics import roc_auc_score
+from .data_utils import DataIterator, IdOodDataIterator
 from abc import ABC, abstractmethod
 from .classification import PercentileBasedIdOodClassifier, ReversedPercentileBasedIdOodClassifier
 
@@ -94,8 +95,7 @@ class UncertaintyEstimate:
 
 class EvaluationMetric(ABC):
     """Base class for all evaluation metrics (both uncertainty and classification)"""
-    @abstractmethod
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         pass
 
     @classmethod
@@ -119,21 +119,23 @@ class EvaluationMetric(ABC):
 class UncertaintyEvaluationMetric(EvaluationMetric):
     """Base class for uncertainty evaluation metrics"""
     
-    def evaluate(self, model, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model, data_iterator: IdOodDataIterator) -> dict:
         """Evaluate uncertainty estimates from model predictions
         
         Args:
             model: Model that returns uncertainty estimates
-            id_data: Tuple of (inputs, outputs) for in-distribution data
-            ood_data: Tuple of (inputs, outputs) for out-of-distribution data
+            data_iterator: Iterator containing both ID and OOD data
             
         Returns:
             Dictionary containing evaluation metric(s)
         """
         model.eval()
         with torch.no_grad():
-            _, id_scores = model(id_data[0], return_ue=True)
-            _, ood_scores = model(ood_data[0], return_ue=True)
+            id_data = data_iterator.get_id_data()
+            ood_data = data_iterator.get_ood_data()
+            
+            _, id_scores = model(id_data, return_ue=True)
+            _, ood_scores = model(ood_data, return_ue=True)
             
         id_ue = UncertaintyEstimate(id_scores)
         ood_ue = UncertaintyEstimate(ood_scores)
@@ -158,10 +160,13 @@ class UncertaintyEvaluationMetric(EvaluationMetric):
 
 class ClassificationMetric(EvaluationMetric):
     """Base class for classification-based metrics like TNR@TPR95, AUROC, etc."""
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         with torch.no_grad():
-            _, id_scores = model(id_data[0], return_ue=True)
-            _, ood_scores = model(ood_data[0], return_ue=True)
+            id_data = data_iterator.get_id_data()
+            ood_data = data_iterator.get_ood_data()
+            
+            _, id_scores = model(id_data, return_ue=True)
+            _, ood_scores = model(ood_data, return_ue=True)
         return self._evaluate_scores(id_scores, ood_scores)
 
     @abstractmethod
@@ -380,10 +385,11 @@ class PercentileScoreEvaluation(UncertaintyEvaluationMetric):
     def get_name(self):
         return self.name
 
+
 class MaxMemoryUsageEvaluation(EvaluationMetric):
     name = "max_memory_usage"
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: DataIterator) -> dict:
         import gc
 
         model.eval()
@@ -391,8 +397,11 @@ class MaxMemoryUsageEvaluation(EvaluationMetric):
             torch.cuda.empty_cache()
             gc.collect()
             torch.cuda.reset_peak_memory_stats()
-            id_ood_combined = torch.cat([id_data[0], ood_data[0]])
-            _, _ = model(id_ood_combined, return_ue=True)
+            batch_results = []
+            for batch in data_iterator:
+                _, _ = model(batch, return_ue=True)
+                batch_results.append(batch_results)
+            combined_results = torch.cat(batch_results)
             max_memory_usage = torch.cuda.max_memory_allocated()
             max_memory_usage_mb = max_memory_usage / (1024 * 1024)
         return {
@@ -425,13 +434,13 @@ class RuntimeEvaluation(EvaluationMetric):
             num_warmup=config.get('warmup', 5)
         )
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         raise NotImplementedError("Cannot call evaluate on base class")
 
-    def _evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple, eval_functor: Callable, return_raw: bool = False) -> dict:
+    def _evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator, eval_functor: Callable, return_raw: bool = False) -> dict:
         model.eval()
         runtimes = np.zeros(self.num_trials)
-        data_combined = torch.cat([id_data[0], ood_data[0]])
+        data_combined = torch.cat([data_iterator.get_id_data(), data_iterator.get_ood_data()])
         with torch.no_grad():
             for _ in range(self.num_warmup):
                 eval_functor(model, data_combined)
@@ -464,16 +473,16 @@ class RuntimeEvaluation(EvaluationMetric):
 class BaseModelRuntimeEvaluation(RuntimeEvaluation):
     name = "base_model_runtime"
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         callable = lambda model, data: model(data)
-        return super()._evaluate(model, id_data, ood_data, callable)
+        return super()._evaluate(model, data_iterator, callable)
 
 class UncertaintyEstimatingRuntimeEvaluation(RuntimeEvaluation):
     name = "uncertainty_estimating_runtime"
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         callable = lambda model, data: model(data, return_ue=True)
-        return super()._evaluate(model, id_data, ood_data, callable)
+        return super()._evaluate(model, data_iterator, callable)
 
 class BaseModelThroughputEvaluation(RuntimeEvaluation):
     name = "base_model_throughput"
@@ -485,17 +494,17 @@ class BaseModelThroughputEvaluation(RuntimeEvaluation):
         throughput_std = np.std(throughput)
         return throughput_mean, throughput_std
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
-        runtimes = super()._evaluate(model, id_data, ood_data, lambda model, data: model(data), return_raw=True)
-        total_samples = id_data[0].shape[0] + ood_data[0].shape[0]
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
+        runtimes = super()._evaluate(model, data_iterator, lambda model, data: model(data), return_raw=True)
+        total_samples = len(data_iterator.data)
         throughput_mean, throughput_std = self._convert_to_throughput(runtimes, total_samples)
         return {self.name: throughput_mean, 'throughput_std': throughput_std}
 
 class UncertaintyEstimatingThroughputEvaluation(BaseModelThroughputEvaluation):
     name = "uncertainty_estimating_throughput"
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
-        runtimes = super()._evaluate(model, id_data, ood_data, lambda model, data: model(data, return_ue=True), return_raw=True)
-        total_samples = id_data[0].shape[0] + ood_data[0].shape[0]
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
+        runtimes = super()._evaluate(model, data_iterator, lambda model, data: model(data, return_ue=True), return_raw=True)
+        total_samples = len(data_iterator.data)
         throughput_mean, throughput_std = self._convert_to_throughput(runtimes, total_samples)
         return {self.name: throughput_mean, 'throughput_std': throughput_std}
 
@@ -667,10 +676,10 @@ class MetricEvaluator:
     def __init__(self, metrics: list[EvaluationMetric]):
         self.metrics = metrics
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, data_iterator: IdOodDataIterator) -> dict:
         results = {}
         for metric in self.metrics:
-            results.update(metric.evaluate(model, id_data, ood_data))
+            results.update(metric.evaluate(model, data_iterator))
         return results
 
     def get_training_objectives(self):
@@ -707,10 +716,7 @@ def get_evaluator(config: dict) -> MetricEvaluator:
             metrics.append(WassersteinEvaluation())
         elif metric_type == 'percentile_classification':
             is_reversed = metric_config.get('reversed', False)
-            if False and is_reversed:
-                metrics.append(ReversedPercentileBasedIdOodClassifier(metric_config['threshold']))
-            else:
-                metrics.append(PercentileBasedClassifier(metric_config['threshold'], is_reversed))
+            metrics.append(PercentileBasedClassifier(metric_config['threshold'], is_reversed))
         elif metric_type == 'tnr_at_tpr':
             metrics.append(TNRatTPX.from_config(metric_config))
         elif metric_type == 'runtime':

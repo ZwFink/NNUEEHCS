@@ -296,3 +296,85 @@ def prepare_dataset_for_use(dset, training_cfg, scaling_dset=None):
         dset.input = ipt
     return dset
 
+
+class DataIterator:
+    def __init__(self, data):
+        self.data = data
+    
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise NotImplementedError
+
+
+class BatchingMixin:
+    """Mixin that adds batching capability to data iterators."""
+    
+    def __init__(self, batch_size: int):
+        self.batch_size = batch_size
+    
+    def iter_batches(self):
+        for i in range(0, len(self.data), self.batch_size):
+            yield self.data[i:i + self.batch_size]
+
+
+class IdOodDataIterator(DataIterator):
+    def __init__(self, id_data: tuple, ood_data: tuple):
+        """Initialize with ID and OOD data tuples
+        
+        Args:
+            id_data: Tuple of (inputs, outputs) for in-distribution data
+            ood_data: Tuple of (inputs, outputs) for out-of-distribution data
+        """
+        # Store the full data for iteration
+        self.id_data = id_data
+        self.ood_data = ood_data
+        
+        # Combine inputs for full iteration
+        combined_inputs = torch.cat([id_data[0], ood_data[0]])
+        super().__init__(combined_inputs)
+        
+        self._id_data_len = len(id_data[0])
+        self._ood_data_len = len(ood_data[0])
+        self._data_len = self._id_data_len + self._ood_data_len
+
+    def __iter__(self):
+        for i in range(self._data_len):
+            yield self.data[i]
+
+    def get_id_data(self):
+        """Get the in-distribution data inputs"""
+        return self.id_data[0]
+
+    def get_ood_data(self):
+        """Get the out-of-distribution data inputs"""
+        return self.ood_data[0]
+        
+    def get_id_labels(self):
+        """Get the in-distribution data labels/outputs"""
+        return self.id_data[1]
+        
+    def get_ood_labels(self):
+        """Get the out-of-distribution data labels/outputs"""
+        return self.ood_data[1]
+
+
+class BatchedDataIterator(BatchingMixin, DataIterator):
+    def __init__(self, data, batch_size: int):
+        DataIterator.__init__(self, data)
+        BatchingMixin.__init__(self, batch_size)
+    
+    def __iter__(self):
+        return self.iter_batches()
+
+
+class IdOodBatchedDataIterator(BatchingMixin, IdOodDataIterator):
+    def __init__(self, id_data: tuple, ood_data: tuple, batch_size: int):
+        IdOodDataIterator.__init__(self, id_data, ood_data)
+        BatchingMixin.__init__(self, batch_size)
+        self.id_data = id_data
+        self.ood_data = ood_data
+    
+    def __iter__(self):
+        return self.iter_batches()
