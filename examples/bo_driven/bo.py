@@ -375,7 +375,9 @@ def main(benchmark, uq_method, config, dataset, output, restart):
                                   tracking_metric_names=bo_params.tracking_metric_names,
                                   outcome_constraints=bo_params.parameter_constraints
                                  )
-    for bo_trial in range(bo_idx, bo_config['trials']):
+    successful_trials = 0
+    failed_trials = 0
+    for bo_trial in range(bo_idx, bo_config['trials'] + bo_config['max_failures']):
         trial, index = ax_client.get_next_trial()
         lr = trial['learning_rate']
         bs = trial['batch_size']
@@ -463,7 +465,7 @@ def main(benchmark, uq_method, config, dataset, output, restart):
                 trial_results[index]['log_path'] = f'{trainer.logger.log_dir}'
                 trial_results[index]['failed'] = False
                 trial_results[index]['error_message'] = ""
-                
+                successful_trials += 1
             except RuntimeError as e:
                 print(f"RuntimeError: {e}")
                 # Mark the trial as failed but maintain consistent columns
@@ -491,12 +493,15 @@ def main(benchmark, uq_method, config, dataset, output, restart):
                 
                 trial_results[index]['failed'] = True
                 trial_results[index]['error_message'] = str(e)
-                
+                failed_trials += 1
                 ax_client.log_trial_failure(trial_index=index)
                 
 
         opt_manager.save_trial_results_dict(trial_results)
         opt_manager.save_optimization_state(index, ax_client)
+
+        if successful_trials == bo_config['trials']:
+            break
 
     if len(bo_params.tracking_metric_names) > 1:
         pareto_results = ax_client.get_pareto_optimal_parameters(use_model_predictions=False)
