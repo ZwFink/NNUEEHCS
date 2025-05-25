@@ -123,7 +123,7 @@ def main(config, output, parsl_rundir):
     results = list()
     for bench, uq_method, dset in total:
         print(f'Running {bench} with {uq_method} on {dset}')
-        res = run_bo(config_data, bench, uq_method, dset, output)
+        res = run_bo(config_filename, bench, uq_method, dset, output)
         results.append(res)
 
     for res in results:
