@@ -412,16 +412,19 @@ def main(benchmark, uq_method, config, dataset, output, restart):
         with torch.no_grad():
             dset_id = get_dataset(dataset_cfg, dataset)
             dset_ood = get_dataset(dataset_cfg, dataset, is_ood=True)
+            _, test_data = dset.train_test_split(test_proportion=0.2)
 
             # we have to scale ood relative to ID
             # we MUST scale OOD first because this method
             # modifies in place
             dset_ood = prepare_dataset_for_use(dset_ood, training_cfg,
                                             scaling_dset=dset_id)
+            dset_test = prepare_dataset_for_use(test_data, training_cfg,
+                                                scaling_dset=dset_id)
             dset_id = prepare_dataset_for_use(dset_id, training_cfg)
 
             try:
-                results = evaluate(model, dset_id, dset_ood, evaluators)
+                results = evaluate(model, dset_test, dset_ood, evaluators)
                 print(results)
                 
                 id_ue = results['id_ue']
