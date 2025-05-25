@@ -307,7 +307,7 @@ def get_restart(output_dir, name, dataset, uq_method):
 @click.option('--benchmark')
 @click.option('--uq_method')
 @click.option('--config', default='config.yaml')
-@click.option('--dataset', type=click.Choice(['tails', 'gaps']))
+@click.option('--dataset')
 @click.option('--output', type=click.Path(), help="Name of output directory")
 @click.option('--restart', is_flag=True, default=False, help="Restart from a previous run found in output directory")
 def main(benchmark, uq_method, config, dataset, output, restart):
