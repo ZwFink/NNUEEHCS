@@ -18,7 +18,7 @@ def get_config(config_filename):
     return config
 
 @bash_app(cache=True)
-def run_evaluate_metrics(config, benchmark, uq_method, dataset, results_dir, output_file,
+def run_evaluate_metrics(config, benchmark, uq_method, dataset, results_dir, output_file, evaluate_all,
                          stdout=parsl.AUTO_LOGNAME,
                          stderr=parsl.AUTO_LOGNAME):
     import sh
@@ -33,13 +33,20 @@ def run_evaluate_metrics(config, benchmark, uq_method, dataset, results_dir, out
     except KeyError:
         pass
     python = sh.Command('python3')
-    command = python.bake('evaluate_metrics.py', 
-                          '--config_file', config,
-                          '--benchmark', benchmark, 
-                          '--dataset', dataset,
-                          '--method', uq_method,
-                          '--results_dir', results_dir,
-                          '--output', output_file)
+    
+    # Build the command arguments
+    args = ['evaluate_metrics.py', 
+            '--config_file', config,
+            '--benchmark', benchmark, 
+            '--dataset', dataset,
+            '--method', uq_method,
+            '--results_dir', results_dir,
+            '--output', output_file]
+    
+    if evaluate_all:
+        args.append('--evaluate_all')
+    
+    command = python.bake(*args)
     print(str(command))
     return str(command)
 
@@ -92,7 +99,8 @@ def combine_results(result_files, output_file):
 @click.option('--max_tasks', default=None, type=int, help='Maximum number of tasks to run (for testing)', required=False)
 @click.option('--local', is_flag=True, help='Run tasks locally instead of on the cluster', required=False)
 @click.option('--skip-completed', is_flag=True, help='Skip tasks if their output file already exists.', required=False)
-def main(config, output, parsl_rundir, results_dir, max_tasks, local, skip_completed):
+@click.option('--evaluate_all', is_flag=True, default=False, help='Evaluate all trained models instead of just the Pareto-optimal ones', required=False)
+def main(config, output, parsl_rundir, results_dir, max_tasks, local, skip_completed, evaluate_all):
 
     config_filename = config
     config_data = get_config(config_filename)
@@ -184,7 +192,7 @@ def main(config, output, parsl_rundir, results_dir, max_tasks, local, skip_compl
 
         print(f'Running metric evaluation for {bench} with {uq_method} on {dset}')
         res = run_evaluate_metrics(config_filename, bench, uq_method, dset, 
-                                   results_dir, output_file)
+                                   results_dir, output_file, evaluate_all)
         eval_results.append(res)
     
     # Wait for all submitted evaluation tasks to complete
