@@ -124,7 +124,24 @@ class DatasetCommon():
     def train_test_split(self, test_proportion: float):
         test_size = int(len(self) * test_proportion)
         train_size = len(self) - test_size
-        return torch.utils.data.random_split(self, [train_size, test_size])
+        split = torch.utils.data.random_split(self, [train_size, test_size])
+        
+        train_indices = split[0].indices
+        test_indices = split[1].indices
+        
+        train_input = self.input[train_indices]
+        train_output = self.output[train_indices]
+        test_input = self.input[test_indices]
+        test_output = self.output[test_indices]
+        
+        return TensorDataset(train_input, train_output), \
+               TensorDataset(test_input, test_output)
+
+class TensorDataset(DatasetCommon, Dataset):
+    def __init__(self, input, output):
+        super().__init__()
+        self.input = input
+        self.output = output
 
     
 class HDF5Dataset(DatasetCommon, Dataset):
@@ -142,8 +159,6 @@ class HDF5Dataset(DatasetCommon, Dataset):
                                                     input_dataset,
                                                     output_dataset
                                                     )
-        self.input = self.input
-        self.output = self.output
         assert len(self.input) == len(self.output)
 
     def get_datasets(self, filename, group_name, ipt_dataset, opt_dataset):
