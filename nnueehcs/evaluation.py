@@ -732,6 +732,8 @@ def get_evaluator(config: dict) -> MetricEvaluator:
             metrics.append(AUROC())
         elif metric_type == 'max_memory_usage':
             metrics.append(MaxMemoryUsageEvaluation())
+        elif metric_type == 'mape':
+            metrics.append(MeanAbsolutePercentageError())
         # Add other metric types as needed
     
     return MetricEvaluator(metrics)
@@ -808,5 +810,70 @@ def _create_single_evaluator(metric_config: dict) -> EvaluationMetric:
         return PercentileScoreEvaluation.from_config(metric_config)
     elif name == 'auroc':
         return AUROC()
+    elif name == 'mape':
+        return MeanAbsolutePercentageError()
     else:
         raise ValueError(f"Invalid metric type: {name}")
+
+class MeanAbsolutePercentageError(EvaluationMetric):
+    name = "mape"
+
+    def _calculate_mape(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
+        """Helper function to calculate Mean Absolute Percentage Error."""
+        y_true_np = y_true.detach().cpu().numpy().flatten()
+        y_pred_np = y_pred.detach().cpu().numpy().flatten()
+
+        if y_true_np.shape[0] == 0:  # No samples
+            return np.nan
+            
+        # Filter out entries where y_true is zero to avoid division by zero error
+        # and to correctly represent MAPE (error relative to non-zero actuals)
+        mask = y_true_np != 0
+        
+        y_true_filtered = y_true_np[mask]
+        y_pred_filtered = y_pred_np[mask]
+        
+        if len(y_true_filtered) == 0: 
+            # This case occurs if all true values were zero or the input was empty after filtering
+            return np.nan 
+
+        mape_val = np.mean(np.abs((y_true_filtered - y_pred_filtered) / y_true_filtered)) * 100
+        return float(mape_val)
+
+    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+        model.eval()
+        with torch.no_grad():
+            id_inputs, id_true = id_data
+            ood_inputs, ood_true = ood_data
+
+            id_pred = model(id_inputs)
+            ood_pred = model(ood_inputs)
+
+            combined_inputs = torch.cat([id_inputs, ood_inputs], dim=0)
+            combined_true = torch.cat([id_true, ood_true], dim=0)
+            combined_pred = model(combined_inputs)
+            
+            mape_id = self._calculate_mape(id_true, id_pred)
+            mape_ood = self._calculate_mape(ood_true, ood_pred)
+            mape_combined = self._calculate_mape(combined_true, combined_pred)
+
+        return {
+            f'{self.name}_id': mape_id,
+            f'{self.name}_ood': mape_ood,
+            f'{self.name}_combined': mape_combined,
+        }
+
+    @classmethod
+    def get_objectives(cls):
+        return [
+            {"name": f"{cls.name}_id", "type": "minimize"},
+            {"name": f"{cls.name}_ood", "type": "minimize"},
+            {"name": f"{cls.name}_combined", "type": "minimize"},
+        ]
+
+    @classmethod
+    def get_metrics(cls):
+        return [f'{cls.name}_id', f'{cls.name}_ood', f'{cls.name}_combined']
+
+    def get_name(self):
+        return self.name
