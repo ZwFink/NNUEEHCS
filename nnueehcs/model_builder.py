@@ -2,7 +2,7 @@ import torch.nn
 import collections
 import io
 import yaml
-from .models import MLPModel, KDEMLPModel, DeltaUQMLP, EnsembleModel, PAGERMLP, MCDropoutModel, KNNKDEMLPModel
+from .models import MLPModel, KDEMLPModel, DeltaUQMLP, EnsembleModel, PAGERMLP, MCDropoutModel, KNNKDEMLPModel, BaselineModel
 import copy
 import types
 
@@ -155,6 +155,20 @@ class MLPModelBuilder(ModelBuilder):
     def build(self):
         model = super().build()
         return MLPModel(model, train_config=self.train_config)
+
+
+class BaselineModelBuilder(ModelBuilder):
+    """Builder for BaselineModel - trains a normal network but returns dummy uncertainty values."""
+    
+    def __init__(self, model_descr, baseline_descr=None, **kwargs):
+        super().__init__(model_descr, **kwargs)
+        self.baseline_descr = baseline_descr or {}
+
+    def build(self):
+        model = super().build()
+        return BaselineModel(model, 
+                           train_config=self.train_config,
+                           **self.baseline_descr)
 
 
 class DeltaUQMLPModelBuilder(ModelBuilder):

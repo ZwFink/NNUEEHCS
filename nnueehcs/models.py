@@ -188,6 +188,43 @@ class MLPModel(WrappedModelBase):
         return self.model(x)
 
 
+class BaselineModel(WrappedModelBase):
+    """Baseline/dummy UE method that trains a normal network but returns dummy uncertainty values.
+    
+    This serves as a baseline for comparison with actual UE methods. It trains a standard neural
+    network and returns dummy uncertainty estimates when requested, allowing it to be used with
+    the same evaluation infrastructure as real UE methods.
+    """
+    def __init__(self, model, uncertainty_value=1.0, **kwargs):
+        """
+        Args:
+            model: The base neural network
+            uncertainty_value: Constant value to return as uncertainty estimate (default: 1.0)
+        """
+        super(BaselineModel, self).__init__(**kwargs)
+        self.model = model
+        self.uncertainty_value = uncertainty_value
+
+    def forward(self, x, return_ue=False):
+        """Forward pass through the model.
+        
+        Args:
+            x: Input tensor
+            return_ue: If True, return (predictions, dummy_uncertainty), else just predictions
+            
+        Returns:
+            If return_ue=False: predictions tensor
+            If return_ue=True: (predictions, dummy_uncertainty_tensor)
+        """
+        predictions = self.model(x)
+        
+        if return_ue:
+            # Return dummy uncertainty values - same shape as predictions but constant value
+            uncertainty = torch.full_like(predictions, self.uncertainty_value)
+            return predictions, uncertainty
+        
+        return predictions
+
 class KDEMLPModel(MLPModel):
     def __init__(self, base_model, bandwidth='scott', rtol=0.1, train_fit_prop=1.0, **kwargs):
         super(KDEMLPModel, self).__init__(base_model, **kwargs)
