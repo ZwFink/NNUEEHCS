@@ -115,21 +115,45 @@ def load_best_model(composite, benchmark, dataset, method, train_eval_metric):
     
     return model, best_run_trial, device
 
-def evaluate_model_metrics(model, dataset_id, dataset_ood, evaluators):
+def evaluate_model_metrics(model, dataset_id, dataset_ood, evaluators, trial_instance=None):
     """Evaluate all metrics for a given model and datasets.
     
     Returns:
-        list: List of evaluation results as [benchmark, dataset, method, trial, metric, objective, value]
+        list: List of evaluation results as [metric_name, objective_name, objective_value]
     """
     results = []
+    
     with torch.no_grad():
-        for metric in evaluators.metrics:
+        # Handle evaluation metrics
+        for metric in evaluators.get_evaluation_metrics():
             print(f"Evaluating with {metric.get_name()}")
-            result = metric.evaluate(model, (dataset_id.input, dataset_id.output),
+            try:
+                result = metric.evaluate(model, (dataset_id.input, dataset_id.output),
                                    (dataset_ood.input, dataset_ood.output))
+            except Exception as e:
+                print(f"Error evaluating {metric.get_name()}: {e}")
+                results.append([metric.get_name(), 'error', str(e)])
+                continue
             
             for objective_name, objective_value in result.items():
                 results.append([metric.get_name(), objective_name, objective_value])
+        
+        # Handle training metrics
+        for metric in evaluators.get_training_metrics():
+            print(f"Evaluating training metric {metric.get_name()}")
+            try:
+                if trial_instance is None:
+                    print(f"Warning: Cannot evaluate training metric {metric.get_name()} without trial instance")
+                    continue
+                result = metric.evaluate(trial_instance)
+            except Exception as e:
+                print(f"Error evaluating training metric {metric.get_name()}: {e}")
+                results.append([metric.get_name(), 'error', str(e)])
+                continue
+            
+            for objective_name, objective_value in result.items():
+                results.append([metric.get_name(), objective_name, objective_value])
+    
     return results
 
 def find_all_training_runs(results_instance: ResultsInstance) -> list[pd.Series]:
@@ -251,7 +275,7 @@ def process_benchmark_dataset(composite, config, benchmark, dataset, evaluators,
             model = model.to(dataset_id.input.dtype)
             model.eval()
             
-            metric_results = evaluate_model_metrics(model, dataset_id, dataset_ood, evaluators)
+            metric_results = evaluate_model_metrics(model, dataset_id, dataset_ood, evaluators, trial_instance)
             
             for metric_name, objective_name, value in metric_results:
                 results.append([benchmark, dataset, current_method, trial, metric_name, objective_name, value])
