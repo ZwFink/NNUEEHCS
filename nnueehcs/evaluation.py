@@ -3,10 +3,12 @@ import torch.nn as nn
 from typing import Union, Tuple, Callable
 import numpy as np
 import time
+import pandas as pd
 from scipy.stats import wasserstein_distance
 from sklearn.metrics import roc_auc_score
 from abc import ABC, abstractmethod
 from .classification import PercentileBasedIdOodClassifier, ReversedPercentileBasedIdOodClassifier
+from .utility import ResultsInstance
 
 
 class UncertaintyEstimate:
@@ -115,6 +117,52 @@ class EvaluationMetric(ABC):
         """Return name of the metric"""
         pass
 
+
+class TrainingMetric(ABC):
+    """Base class for training metrics"""
+    @abstractmethod
+    def evaluate(self, results_instance: ResultsInstance) -> dict:
+        pass
+    @classmethod
+    @abstractmethod
+    def get_name(cls):
+        """Return name of the metric"""
+        pass
+    @classmethod
+    @abstractmethod
+    def get_objectives(cls):
+        """Return list of objectives for optimization during training"""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_metrics(cls):
+        """Return list of all metrics this evaluator can compute"""
+        pass
+
+class TrainingTimeMetric(TrainingMetric):
+    name = "training_time"
+    """Base class for training time metrics"""
+    def evaluate(self, results_instance: ResultsInstance) -> dict:
+        trial_num = results_instance.get_trial_number()
+        results_file = results_instance.get_trial_results_file()
+        results = pd.read_csv(results_file)
+        return {self.name: results.iloc[trial_num]['train_time']}
+    
+    @classmethod
+    def get_name(cls):
+        return cls.name
+
+    @classmethod
+    def get_objectives(cls):
+        return [{
+            "name": cls.name,
+            "type": "minimize"
+        }]
+
+    @classmethod
+    def get_metrics(cls):
+        return [cls.name]
 
 class UncertaintyEvaluationMetric(EvaluationMetric):
     """Base class for uncertainty evaluation metrics"""
@@ -668,10 +716,15 @@ class MetricEvaluator:
     def __init__(self, metrics: list[EvaluationMetric]):
         self.metrics = metrics
 
-    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple) -> dict:
+    def evaluate(self, model: nn.Module, id_data: tuple, ood_data: tuple, results_instance=None) -> dict:
         results = {}
         for metric in self.metrics:
-            results.update(metric.evaluate(model, id_data, ood_data))
+            if is_training_metric(metric):
+                if results_instance is None:
+                    raise ValueError(f"Training metric {metric.get_name()} requires results_instance")
+                results.update(metric.evaluate(results_instance))
+            else:
+                results.update(metric.evaluate(model, id_data, ood_data))
         return results
 
     def get_training_objectives(self):
@@ -695,6 +748,14 @@ class MetricEvaluator:
             else:
                 metrics.extend(metric.get_metrics())
         return metrics
+
+    def get_evaluation_metrics(self):
+        """Get only evaluation metrics"""
+        return [metric for metric in self.metrics if is_evaluation_metric(metric)]
+
+    def get_training_metrics(self):
+        """Get only training metrics"""
+        return [metric for metric in self.metrics if is_training_metric(metric)]
 
 
 def get_evaluator(config: dict) -> MetricEvaluator:
@@ -734,6 +795,8 @@ def get_evaluator(config: dict) -> MetricEvaluator:
             metrics.append(MaxMemoryUsageEvaluation())
         elif metric_type == 'mape':
             metrics.append(MeanAbsolutePercentageError())
+        elif metric_type == 'training_time':
+            metrics.append(TrainingTimeMetric())
         # Add other metric types as needed
     
     return MetricEvaluator(metrics)
@@ -812,6 +875,8 @@ def _create_single_evaluator(metric_config: dict) -> EvaluationMetric:
         return AUROC()
     elif name == 'mape':
         return MeanAbsolutePercentageError()
+    elif name == 'training_time':
+        return TrainingTimeMetric()
     else:
         raise ValueError(f"Invalid metric type: {name}")
 
@@ -877,3 +942,10 @@ class MeanAbsolutePercentageError(EvaluationMetric):
 
     def get_name(self):
         return self.name
+
+
+def is_training_metric(metric: EvaluationMetric) -> bool:
+    return isinstance(metric, TrainingMetric)
+
+def is_evaluation_metric(metric: EvaluationMetric) -> bool:
+    return isinstance(metric, EvaluationMetric)
