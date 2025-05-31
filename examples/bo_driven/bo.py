@@ -6,7 +6,7 @@ import time
 import sys
 from nnueehcs.model_builder import (EnsembleModelBuilder, KDEModelBuilder, 
                                     KNNKDEModelBuilder, DeltaUQMLPModelBuilder, 
-                                    PAGERModelBuilder, MCDropoutModelBuilder)
+                                    PAGERModelBuilder, MCDropoutModelBuilder, BaselineModelBuilder)
 from nnueehcs.training import Trainer, ModelSavingCallback
 from nnueehcs.data_utils import get_dataset, prepare_dataset_for_use
 from nnueehcs.evaluation import get_uncertainty_evaluator, UncertaintyEstimate
@@ -188,6 +188,8 @@ def get_model_builder_class(uq_method):
         return PAGERModelBuilder
     elif uq_method == 'mc_dropout':
         return MCDropoutModelBuilder
+    elif uq_method == 'no_uq':
+        return BaselineModelBuilder
     else:
         raise ValueError(f'Unknown uq method {uq_method}')
 
@@ -506,7 +508,7 @@ def main(benchmark, uq_method, config, dataset, output, restart):
         if successful_trials == bo_config['trials']:
             break
 
-    if len(bo_params.tracking_metric_names) > 1:
+    if successful_trials > 1 and len(bo_params.tracking_metric_names) > 1:
         pareto_results = ax_client.get_pareto_optimal_parameters(use_model_predictions=False)
         pareto_predictions = ax_client.get_pareto_optimal_parameters(use_model_predictions=True)
         pareto = {'results': pareto_results, 'predictions': pareto_predictions}
