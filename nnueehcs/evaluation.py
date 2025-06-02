@@ -443,8 +443,9 @@ class MaxMemoryUsageEvaluation(EvaluationMetric):
             _, _ = model(id_ood_combined, return_ue=True)
             max_memory_usage = torch.cuda.max_memory_allocated()
             max_memory_usage_mb = max_memory_usage / (1024 * 1024)
+            non_torch_memory_usage_mb = model.get_non_torch_memory_usage_mb()
         return {
-            'max_memory_usage': max_memory_usage_mb
+            'max_memory_usage': max_memory_usage_mb + non_torch_memory_usage_mb
         }
 
     def get_objectives(cls):

@@ -83,6 +83,9 @@ class WrappedModelBase(pl.LightningModule):
 
     def get_callbacks(self):
         return []
+        
+    def get_non_torch_memory_usage_mb(self):
+        return 0
 
 
 class EnsembleModel(WrappedModelBase):
@@ -320,6 +323,9 @@ class KNNKDEMLPModel(MLPModel):
     def get_callbacks(self):
         callbacks = [self.KNNKDEFitCallback()]
         return callbacks
+
+    def get_non_torch_memory_usage_mb(self):
+        return self._kde.get_gpu_memory_use_mb()
 
 
 class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
