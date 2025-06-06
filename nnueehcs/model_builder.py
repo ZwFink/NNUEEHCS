@@ -2,7 +2,7 @@ import torch.nn
 import collections
 import io
 import yaml
-from .models import MLPModel, KDEMLPModel, DeltaUQMLP, EnsembleModel, PAGERMLP, MCDropoutModel, KNNKDEMLPModel, BaselineModel
+from .models import MLPModel, KDEMLPModel, DeltaUQMLP, EnsembleModel, PAGERMLP, MCDropoutModel, KNNKDEMLPModel, BaselineModel, DeepEvidentialModel
 import copy
 import types
 
@@ -307,3 +307,36 @@ class KNNKDEModelBuilder(ModelBuilder):
 
     def build(self):
         return KNNKDEMLPModel(super().build(), **self.knn_kde_descr, train_config=self.train_config)
+
+
+class DeepEvidentialModelBuilder(ModelBuilder):
+    """Builder for Deep Evidential Regression models."""
+    
+    def __init__(self, base_descr, der_descr, **kwargs):
+        super().__init__(base_descr, **kwargs)
+        self.der_descr = der_descr
+        self._updated = False
+
+    def build(self):
+        # Update the architecture to output 4 values instead of 1
+        self.update_info(self.get_info())
+        base_model = super().build()
+        return DeepEvidentialModel(base_model, 
+                                 train_config=self.train_config,
+                                 **self.der_descr)
+
+    def update_info(self, info):
+        """Update the last layer to output 4 values for evidential parameters"""
+        if self._updated:
+            return
+        self._updated = True
+        
+        # Find the last Linear layer and multiply its output by 4
+        for i in range(len(self.model_descr) - 1, -1, -1):
+            layer_dict = self.model_descr[i]
+            if 'Linear' in layer_dict:
+                current_args = layer_dict['Linear']['args']
+                # Change output dimension from 1 to 4 (gamma, nu, alpha, beta)
+                if len(current_args) >= 2:
+                    current_args[1] = 4
+                break

@@ -6,7 +6,7 @@ import time
 import sys
 from nnueehcs.model_builder import (EnsembleModelBuilder, KDEModelBuilder, 
                                     KNNKDEModelBuilder, DeltaUQMLPModelBuilder, 
-                                    PAGERModelBuilder, MCDropoutModelBuilder, BaselineModelBuilder)
+                                    PAGERModelBuilder, MCDropoutModelBuilder, BaselineModelBuilder, DeepEvidentialModelBuilder)
 from nnueehcs.training import Trainer, ModelSavingCallback
 from nnueehcs.data_utils import get_dataset, prepare_dataset_for_use
 from nnueehcs.evaluation import get_uncertainty_evaluator, UncertaintyEstimate
@@ -164,7 +164,7 @@ def get_params(config):
 
 
 def get_trainer(trainer_config, name, model, ue_method, dataset, version=None, log_dir='logs'):
-    callbacks = [EarlyStopping(monitor='val_loss', min_delta=0.00, patience=30, verbose=False, mode='min'),
+    callbacks = [EarlyStopping(monitor='val_loss', min_delta=0.00, patience=50, verbose=False, mode='min'),
                  ModelSavingCallback(monitor='val_loss')]
     extra_cbs = model.get_callbacks()
     if extra_cbs:
@@ -190,6 +190,8 @@ def get_model_builder_class(uq_method):
         return MCDropoutModelBuilder
     elif uq_method == 'no_uq':
         return BaselineModelBuilder
+    elif uq_method == 'deep_evidential':
+        return DeepEvidentialModelBuilder
     else:
         raise ValueError(f'Unknown uq method {uq_method}')
 

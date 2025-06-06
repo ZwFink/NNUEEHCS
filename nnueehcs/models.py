@@ -18,6 +18,48 @@ training_defaults = {
     'loss': 'l1_loss',
 }
 
+# Custom loss functions registry
+CUSTOM_LOSS_FUNCTIONS = {}
+
+def register_loss_function(name, loss_fn):
+    """Register a custom loss function"""
+    CUSTOM_LOSS_FUNCTIONS[name] = loss_fn
+
+def evidential_loss(outputs, targets, lam=1.0, epsilon=1e-4):
+    """
+    Evidential loss function for Deep Evidential Regression
+    
+    Args:
+        outputs: Model outputs [gamma, nu, alpha, beta] where gamma is prediction
+        targets: Ground truth targets
+        lam: Regularization coefficient
+        epsilon: Small constant for numerical stability
+    
+    Returns:
+        Total loss combining likelihood and regularization terms
+    """
+    gamma, nu, alpha, beta = torch.chunk(outputs, 4, dim=-1)
+    
+    # Ensure positive values for variance parameters
+    nu = F.softplus(nu) + epsilon
+    alpha = F.softplus(alpha) + 1 + epsilon  # alpha > 1
+    beta = F.softplus(beta) + epsilon
+    
+    # Compute the negative log likelihood
+    diff = (targets - gamma) ** 2
+    likelihood_loss = 0.5 * torch.log(torch.pi / nu) + alpha * torch.log(2 * beta) + \
+                     (alpha + 0.5) * torch.log(nu * diff + 2 * beta) - \
+                     torch.lgamma(alpha + 0.5) + torch.lgamma(alpha)
+    
+    # Regularization term (encourages higher uncertainty for wrong predictions)
+    error = torch.abs(targets - gamma)
+    reg = error * (2 * nu + alpha)
+    
+    return likelihood_loss.mean() + lam * reg.mean()
+
+# Register the evidential loss
+register_loss_function('evidential_loss', evidential_loss)
+
 
 class WrappedModelBase(pl.LightningModule):
     def __init__(self, train_config=None,
@@ -38,7 +80,13 @@ class WrappedModelBase(pl.LightningModule):
             return
 
         self.train_config.update(train_config)
-        self.loss = self.get_loss_fn(train_config['loss'])
+        # Only set loss function if 'loss' is specified in config
+        # Some models (like DeepEvidentialModel) use custom loss functions
+        if 'loss' in self.train_config:
+            self.loss = self.get_loss_fn(self.train_config['loss'])
+        else:
+            # Use a default loss function as fallback
+            self.loss = self.get_loss_fn('mse_loss')
 
     def set_validation_config(self, validation_config):
         if validation_config is None:
@@ -47,25 +95,54 @@ class WrappedModelBase(pl.LightningModule):
             return
 
         self.validation_config.update(validation_config)
-        self.val_loss = self.get_loss_fn(validation_config['loss'])
+        # Only set loss function if 'loss' is specified in config
+        if 'loss' in self.validation_config:
+            self.val_loss = self.get_loss_fn(self.validation_config['loss'])
+        else:
+            # Use a default loss function as fallback
+            self.val_loss = self.get_loss_fn('mse_loss')
 
     def get_loss_fn(self, name):
+        """Get loss function by name, supporting both built-in and custom functions"""
+        # First check if it's a custom loss function
+        if name in CUSTOM_LOSS_FUNCTIONS:
+            return CUSTOM_LOSS_FUNCTIONS[name]
+        
+        # Then check if it's a built-in function
         try:
             return getattr(F, name)
         except AttributeError:
             raise ValueError(f"Unknown loss function: {name}")
 
+    def get_custom_loss_fn(self):
+        """Override this method to provide a custom loss function for specific models"""
+        return None
+
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
+        
+        # Use custom loss if available, otherwise use configured loss
+        custom_loss = self.get_custom_loss_fn()
+        if custom_loss is not None:
+            loss = custom_loss(y_hat, y)
+        else:
+            loss = self.loss(y_hat, y)
+        
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
+        
+        # Use custom loss if available, otherwise use configured loss
+        custom_loss = self.get_custom_loss_fn()
+        if custom_loss is not None:
+            loss = custom_loss(y_hat, y)
+        else:
+            loss = self.loss(y_hat, y)
+        
         self.log('val_loss', loss)
         return loss
 
@@ -513,5 +590,114 @@ class PAGERMLP(DeltaUQMLP, WrappedModelBase):
             if self._epochs == 0 and bs*len(self._anchor_X) < pl_module.num_anchors:
                 self._anchor_X.append(batch[0].detach())
                 self._anchor_Y.append(batch[1].detach())
+
+
+class DeepEvidentialModel(WrappedModelBase):
+    """Deep Evidential Regression model that outputs evidential parameters and computes uncertainty."""
+    
+    def __init__(self, model, lam=1.0, **kwargs):
+        """
+        Args:
+            model: Base neural network that outputs 4 values [gamma, nu, alpha, beta]
+            lam: Regularization coefficient for evidential loss
+        """
+        super(DeepEvidentialModel, self).__init__(**kwargs)
+        self.model = model
+        self.lam = lam
+        self.epsilon = 1e-4  # Fixed numerical stability constant
+
+    def get_raw_outputs(self, x):
+        """Get raw 4-parameter outputs for loss computation, regardless of training/eval mode."""
+        return self.model(x)
+
+    def forward(self, x, return_ue=False):
+        """Forward pass through the evidential model.
+        
+        Args:
+            x: Input tensor
+            return_ue: If True, return (predictions, uncertainty), else just predictions
+            
+        Returns:
+            If training: raw outputs (4 parameters for loss function)
+            If return_ue=False (inference): predictions (gamma values)
+            If return_ue=True (inference): (predictions, epistemic_uncertainty)
+        """
+        outputs = self.model(x)
+        
+        # During training, return raw outputs for the loss function
+        if self.training:
+            return outputs
+        
+        # During inference, process the outputs
+        gamma, nu, alpha, beta = torch.chunk(outputs, 4, dim=-1)
+        
+        # Ensure positive values for variance parameters
+        nu = F.softplus(nu) + self.epsilon
+        alpha = F.softplus(alpha) + 1 + self.epsilon  # alpha > 1
+        beta = F.softplus(beta) + self.epsilon
+        
+        predictions = gamma  # The mean prediction
+        
+        if return_ue:
+            # Epistemic uncertainty
+            epistemic_uncertainty = beta / (alpha - 1)
+            return predictions, -epistemic_uncertainty
+        
+        return predictions
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.get_raw_outputs(x)  # Always get raw outputs for loss
+        
+        # Use custom loss function
+        custom_loss = self.get_custom_loss_fn()
+        if custom_loss is not None:
+            loss = custom_loss(y_hat, y)
+        else:
+            loss = self.loss(y_hat, y)
+        
+        self.log('train_loss', loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.get_raw_outputs(x)  # Always get raw outputs for loss
+        
+        # Use custom loss function
+        custom_loss = self.get_custom_loss_fn()
+        if custom_loss is not None:
+            loss = custom_loss(y_hat, y)
+        else:
+            loss = self.loss(y_hat, y)
+        
+        self.log('val_loss', loss)
+        return loss
+
+    def get_custom_loss_fn(self):
+        """Override to use evidential loss function"""
+        def loss_fn(outputs, targets):
+            return evidential_loss(outputs, targets, lam=self.lam, epsilon=self.epsilon)
+        return loss_fn
+
+    def get_evidential_parameters(self, x):
+        """Get all evidential parameters for analysis.
+        
+        Returns:
+            Dict with keys: gamma (mean), nu (precision), alpha, beta (variance params)
+        """
+        outputs = self.model(x)
+        gamma, nu, alpha, beta = torch.chunk(outputs, 4, dim=-1)
+        
+        # Ensure positive values for variance parameters
+        nu = F.softplus(nu) + self.epsilon
+        alpha = F.softplus(alpha) + 1 + self.epsilon
+        beta = F.softplus(beta) + self.epsilon
+        
+        return {
+            'gamma': gamma,
+            'nu': nu, 
+            'alpha': alpha,
+            'beta': beta
+        }
 
 
