@@ -426,6 +426,14 @@ uq_methods:
         bounds: 
           - 0.05
           - 0.3
+  deep_evidential:
+    parameter_space:
+      - name: lam
+        type: range
+        bounds:
+          - 0.00001
+          - 0.1
+        log_scale: true
 
 bo_config:
   trials: 50
