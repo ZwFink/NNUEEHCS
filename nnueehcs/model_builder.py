@@ -27,6 +27,58 @@ class LayerBuilder(object):
             self._namespace = self._namespace.new_child(namespace)
 
 
+def expand_repeats(architecture):
+    """
+    Expand Repeat blocks in the architecture into their full form.
+    
+    Args:
+        architecture (list): List of layer dictionaries, potentially containing Repeat blocks
+        
+    Returns:
+        list: Expanded architecture with Repeat blocks replaced by their repeated content
+        
+    Example:
+        Input:
+        [
+            {'Linear': {'args': [4, 2048]}},
+            {'Repeat': {'count': 3, 'layers': [
+                {'Linear': {'args': [2048, 2048]}},
+                {'ReLU': {'inplace': True}}
+            ]}},
+            {'Linear': {'args': [2048, 1]}}
+        ]
+        
+        Output:
+        [
+            {'Linear': {'args': [4, 2048]}},
+            {'Linear': {'args': [2048, 2048]}},
+            {'ReLU': {'inplace': True}},
+            {'Linear': {'args': [2048, 2048]}},
+            {'ReLU': {'inplace': True}},
+            {'Linear': {'args': [2048, 2048]}},
+            {'ReLU': {'inplace': True}},
+            {'Linear': {'args': [2048, 1]}}
+        ]
+    """
+    expanded = []
+    
+    for block in architecture:
+        if 'Repeat' in block:
+            repeat_config = block['Repeat']
+            count = repeat_config['count']
+            layers_to_repeat = repeat_config['layers']
+            
+            expanded_layers = expand_repeats(layers_to_repeat)
+            
+            # Add the expanded layers 'count' times
+            for _ in range(count):
+                expanded.extend(copy.deepcopy(expanded_layers))
+        else:
+            expanded.append(block)
+    
+    return expanded
+
+
 def build_network(architecture, builder=LayerBuilder(torch.nn.__dict__)):
     """
     Configuration for feedforward networks is list by nature. We can write 
@@ -43,6 +95,13 @@ def build_network(architecture, builder=LayerBuilder(torch.nn.__dict__)):
                 args: [16, 25, 5]
                 stride: 1
                 padding: 2
+            - Repeat:
+                count: 3
+                layers:
+                  - Linear:
+                      args: [256, 256]
+                  - ReLU:
+                      inplace: true
     Note, that each layer is a list with a single dict, this is for readability.
     For example, `builder` for the first block is called like this:
     .. code-block:: python
@@ -62,7 +121,8 @@ def build_network(architecture, builder=LayerBuilder(torch.nn.__dict__)):
         
     """
     layers = []
-    architecture = copy.deepcopy(architecture)
+    architecture = expand_repeats(copy.deepcopy(architecture))
+    
     for block in architecture:
         assert len(block) == 1
         name, kwargs = list(block.items())[0]
