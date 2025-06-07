@@ -5,7 +5,8 @@ from nnueehcs.model_builder import (build_network, ModelBuilder,
                                     PAGERModelBuilder,
                                     KDEModelBuilder,
                                     KDEMLPModel,
-                                    MCDropoutModelBuilder)
+                                    MCDropoutModelBuilder,
+                                    expand_repeats)
 import torch
 import io
 import yaml
@@ -332,3 +333,196 @@ MCDropoutModel(
     arch2.train()
     for layer in arch2.model:
         assert layer.training == True
+
+
+def test_expand_repeats_basic():
+    """Test basic repeat functionality"""
+    architecture = [
+        {'Linear': {'args': [4, 64]}},
+        {'Repeat': {
+            'count': 3,
+            'layers': [
+                {'Linear': {'args': [64, 64]}},
+                {'ReLU': {'inplace': True}}
+            ]
+        }},
+        {'Linear': {'args': [64, 1]}}
+    ]
+    
+    expanded = expand_repeats(architecture)
+    
+    # Should have: 1 initial Linear + (3 * 2 repeated layers) + 1 final Linear = 8 layers
+    expected_length = 1 + (3 * 2) + 1
+    assert len(expanded) == expected_length
+    
+    # Check structure
+    assert 'Linear' in expanded[0]
+    assert expanded[0]['Linear']['args'] == [4, 64]
+    
+    # Check repeated layers
+    for i in range(1, 7, 2):  # indices 1, 3, 5 should be Linear layers
+        assert 'Linear' in expanded[i]
+        assert expanded[i]['Linear']['args'] == [64, 64]
+    
+    for i in range(2, 8, 2):  # indices 2, 4, 6 should be ReLU layers
+        assert 'ReLU' in expanded[i]
+        assert expanded[i]['ReLU']['inplace'] == True
+    
+    # Check final layer
+    assert 'Linear' in expanded[7]
+    assert expanded[7]['Linear']['args'] == [64, 1]
+
+
+def test_expand_repeats_nested():
+    """Test nested repeat functionality"""
+    architecture = [
+        {'Linear': {'args': [4, 32]}},
+        {'Repeat': {
+            'count': 2,
+            'layers': [
+                {'Linear': {'args': [32, 32]}},
+                {'Repeat': {
+                    'count': 2,
+                    'layers': [
+                        {'BatchNorm1d': {'args': [32]}},
+                        {'ReLU': {'inplace': True}}
+                    ]
+                }}
+            ]
+        }},
+        {'Linear': {'args': [32, 1]}}
+    ]
+    
+    expanded = expand_repeats(architecture)
+    
+    # Should have: 1 initial + 2 * (1 Linear + 2 * (1 BatchNorm + 1 ReLU)) + 1 final
+    # = 1 + 2 * (1 + 4) + 1 = 1 + 10 + 1 = 12 layers
+    expected_length = 12
+    assert len(expanded) == expected_length
+
+
+def test_build_network_with_repeat():
+    """Test that build_network works with repeat blocks"""
+    architecture = [
+        {'Linear': {'args': [4, 32]}},
+        {'Repeat': {
+            'count': 2,
+            'layers': [
+                {'Linear': {'args': [32, 32]}},
+                {'ReLU': {'inplace': True}}
+            ]
+        }},
+        {'Linear': {'args': [32, 1]}}
+    ]
+    
+    # This should not raise an exception
+    network = build_network(architecture)
+    
+    # Check that we can create a model instance
+    assert isinstance(network, torch.nn.Sequential)
+    assert len(network) == 6  # 1 + 2*2 + 1 = 6 layers
+    
+    # Test with dummy input
+    dummy_input = torch.randn(10, 4)
+    output = network(dummy_input)
+    assert output.shape == (10, 1)
+
+
+def test_repeat_equivalence():
+    """Test that repeat blocks produce the same result as manually expanded architectures"""
+    # Original architecture (expanded manually)
+    original_arch = [
+        {'Linear': {'args': [4, 2048]}},
+        {'BatchNorm1d': {'args': [2048]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [2048, 2048]}},
+        {'BatchNorm1d': {'args': [2048]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [2048, 2048]}},
+        {'BatchNorm1d': {'args': [2048]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [2048, 1]}}
+    ]
+    
+    # New architecture with repeat
+    repeat_arch = [
+        {'Linear': {'args': [4, 2048]}},
+        {'BatchNorm1d': {'args': [2048]}},
+        {'ReLU': {'inplace': True}},
+        {'Repeat': {
+            'count': 2,
+            'layers': [
+                {'Linear': {'args': [2048, 2048]}},
+                {'BatchNorm1d': {'args': [2048]}},
+                {'ReLU': {'inplace': True}}
+            ]
+        }},
+        {'Linear': {'args': [2048, 1]}}
+    ]
+    
+    # Expand the repeat architecture
+    expanded_repeat = expand_repeats(repeat_arch)
+    
+    # They should be equivalent
+    assert len(expanded_repeat) == len(original_arch)
+    
+    for i, (orig, new) in enumerate(zip(original_arch, expanded_repeat)):
+        assert orig == new, f"Layer {i} differs: {orig} vs {new}"
+
+
+def test_repeat_yaml_integration():
+    """Test repeat functionality with YAML configuration"""
+    yaml_config = """
+architecture_with_repeat:
+    - Linear:
+        args: [10, 50]
+    - Repeat:
+        count: 3
+        layers:
+          - Linear:
+              args: [50, 50]
+          - ReLU:
+              inplace: true
+          - BatchNorm1d:
+              args: [50]
+    - Linear:
+        args: [50, 1]
+"""
+    
+    config = yaml.safe_load(io.StringIO(yaml_config))
+    architecture = config['architecture_with_repeat']
+    
+    # Build network should work with repeat blocks
+    network = build_network(architecture)
+    
+    # Should have: 1 + 3*3 + 1 = 11 layers
+    assert len(network) == 11
+    
+    # Test that it produces valid output
+    dummy_input = torch.randn(5, 10)
+    output = network(dummy_input)
+    assert output.shape == (5, 1)
+
+
+def test_repeat_empty_layers():
+    """Test edge case with empty layers in repeat block"""
+    architecture = [
+        {'Linear': {'args': [4, 32]}},
+        {'Repeat': {
+            'count': 0,
+            'layers': [
+                {'Linear': {'args': [32, 32]}},
+                {'ReLU': {'inplace': True}}
+            ]
+        }},
+        {'Linear': {'args': [32, 1]}}
+    ]
+    
+    expanded = expand_repeats(architecture)
+    
+    # Should have only the first and last layers
+    assert len(expanded) == 2
+    assert 'Linear' in expanded[0]
+    assert expanded[0]['Linear']['args'] == [4, 32]
+    assert 'Linear' in expanded[1]
+    assert expanded[1]['Linear']['args'] == [32, 1]
