@@ -250,6 +250,27 @@ class CharacterDelimitedDataset(DatasetCommon, Dataset):
     def shape(self):
         return self.input.shape
 
+class NumpyDataset(DatasetCommon, Dataset):
+    def __init__(self, path: str, **kwargs):
+        super().__init__(**kwargs)
+        self.path = path
+        data = np.load(path)
+        
+        # If data is a tuple/list (from savez or manual tuple), unpack it
+        if isinstance(data, (tuple, list)) and len(data) == 2:
+            self.input, self.output = data
+        # If data is a single array, split into input (all but last column) and output (last column)
+        elif isinstance(data, np.ndarray):
+            if len(data.shape) != 2:
+                raise ValueError(f"Expected 2D array with shape (samples, n_features+1), got shape {data.shape}")
+            # 2D array - treat all but last column as input, last column as output
+            self.input = data[:, :-1]
+            self.output = np.expand_dims(data[:, -1], -1)
+        else:
+            raise ValueError(f"Unsupported data format loaded from {path}. Expected 2D array or tuple of arrays.")
+        
+        self.input, self.output = torch.tensor(self.input), torch.tensor(self.output)
+
 
 def get_dataset_from_config(config, dataset_name):
     dset_details = config[dataset_name].copy()
@@ -262,6 +283,9 @@ def get_dataset_from_config(config, dataset_name):
     elif dset_details['format'] == 'character_delimited':
         del dset_details['format']
         return CharacterDelimitedDataset(**dset_details)
+    elif dset_details['format'] == 'numpy':
+        del dset_details['format']
+        return NumpyDataset(**dset_details)
     else:
         raise ValueError(f"Unknown dataset format {dset_details['format']}")
 
