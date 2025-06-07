@@ -71,6 +71,16 @@ class WrappedModelBase(pl.LightningModule):
         self.set_train_config(train_config)
         self.set_validation_config(validation_config)
 
+    def fit(self, train_data):
+        """
+        Fit the model to training data. Base implementation does nothing.
+        Override in subclasses that need to fit to training data (e.g., KDE models, DeltaUQ).
+        
+        Args:
+            train_data: Training data, typically a tensor of input samples or tuple of (inputs, targets)
+        """
+        pass
+
     def set_train_config(self, train_config):
         if train_config is None:
             # We have a default train config,
@@ -305,13 +315,23 @@ class BaselineModel(WrappedModelBase):
         
         return predictions
 
+
 class KDEMLPModel(MLPModel):
-    def __init__(self, base_model, bandwidth='scott', rtol=0.1, train_fit_prop=1.0, **kwargs):
+    def __init__(self, base_model, bandwidth='scott', rtol=1e-4, train_fit_prop=1.0, **kwargs):
         super(KDEMLPModel, self).__init__(base_model, **kwargs)
         self.bandwidth = bandwidth
-        self.rtol = rtol/10000
+        self.rtol = rtol
         self.kde = None
         self.train_fit_prop = train_fit_prop
+
+    def fit(self, train_data):
+        """
+        Fit the KDE to training data.
+        
+        Args:
+            train_data: NNUEEHCS dataset with .input and .output attributes
+        """
+        self.fit_kde(train_data.input)
 
     def fit_kde(self, data):
         from sklearn.neighbors import KernelDensity
@@ -321,7 +341,6 @@ class KDEMLPModel(MLPModel):
         train_data = data[train_idxes].detach().cpu().numpy()
         kde.fit(train_data)
         self.kde = kde
-
 
     def forward(self, x, return_ue=False):
         if return_ue and self.kde is None:
@@ -345,7 +364,7 @@ class KDEMLPModel(MLPModel):
             self._train_data_to_fit = []
             self._epochs = 0
 
-        def on_train_epoch_end(self, trainer, pl_module):
+        def on_validation_epoch_start(self, trainer, pl_module):
             print(f"Fitting KDE on {len(self._train_data_to_fit)} samples")
             if self._epochs == 0:
                 trn_data = torch.cat(self._train_data_to_fit)
@@ -367,6 +386,15 @@ class KNNKDEMLPModel(MLPModel):
         self.k = k
         self.train_fit_prop = train_fit_prop
         self._kde = kde.KNNKDE(k=self.k, bandwidth=self.bandwidth)
+
+    def fit(self, train_data):
+        """
+        Fit the KNN-KDE to training data.
+        
+        Args:
+            train_data: NNUEEHCS dataset with .input and .output attributes
+        """
+        self.fit_kde(train_data.input)
 
     def fit_kde(self, data):
         self._kde.fit(data)
@@ -422,6 +450,18 @@ class DeltaUQMLP(deltaUQ_MLP, WrappedModelBase):
             self.batch_size = anchored_batch_size
         # Initialize anchors as None to prevent errors
         self.register_buffer('_anchors', None)
+
+    def fit(self, train_data):
+        """
+        Fit the DeltaUQ model by setting anchors from training data.
+        
+        Args:
+            train_data: NNUEEHCS dataset with .input and .output attributes
+        """
+        # Set anchors to first num_anchors samples
+        inputs = train_data.input
+        num_samples = min(self.num_anchors, len(inputs))
+        self.anchors = inputs[:num_samples].detach().clone()
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -506,6 +546,21 @@ class PAGERMLP(DeltaUQMLP, WrappedModelBase):
         self.vectorize = vectorize
         # Initialize anchors as None to prevent errors
         self.register_buffer('_anchors', None)
+
+    def fit(self, train_data):
+        """
+        Fit the PAGER model by setting anchors from training data.
+        
+        Args:
+            train_data: NNUEEHCS dataset with .input and .output attributes
+        """
+        inputs = train_data.input
+        targets = train_data.output
+        
+        # Set anchors to first num_anchors samples
+        num_samples = min(self.num_anchors, len(inputs))
+        self.anchors = inputs[:num_samples].detach().clone()
+        self.anchors_Y = targets[:num_samples].detach().clone()
 
     def forward(self, x, return_ue=False):
         res = DeltaUQMLP.forward(self, x, return_ue)
