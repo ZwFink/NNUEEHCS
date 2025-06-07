@@ -340,3 +340,34 @@ class DeepEvidentialModelBuilder(ModelBuilder):
                 if len(current_args) >= 2:
                     current_args[1] = 4
                 break
+
+def get_model_builder_class(uq_method):
+    """Get the appropriate model builder class for a given UQ method.
+    
+    Args:
+        uq_method (str): The uncertainty quantification method name
+        
+    Returns:
+        class: The corresponding model builder class
+        
+    Raises:
+        ValueError: If the uq_method is not recognized
+    """
+    if uq_method == 'ensemble':
+        return EnsembleModelBuilder
+    elif uq_method == 'kde':
+        return KDEModelBuilder
+    elif uq_method == 'knn_kde':
+        return KNNKDEModelBuilder
+    elif uq_method == 'delta_uq':
+        return DeltaUQMLPModelBuilder
+    elif uq_method == 'pager':
+        return PAGERModelBuilder
+    elif uq_method == 'mc_dropout':
+        return MCDropoutModelBuilder
+    elif uq_method == 'no_uq':
+        return BaselineModelBuilder
+    elif uq_method == 'deep_evidential':
+        return DeepEvidentialModelBuilder
+    else:
+        raise ValueError(f'Unknown uq method {uq_method}')

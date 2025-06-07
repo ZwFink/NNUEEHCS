@@ -4,9 +4,7 @@ import re
 from torch.utils.data import DataLoader
 import time
 import sys
-from nnueehcs.model_builder import (EnsembleModelBuilder, KDEModelBuilder, 
-                                    KNNKDEModelBuilder, DeltaUQMLPModelBuilder, 
-                                    PAGERModelBuilder, MCDropoutModelBuilder, BaselineModelBuilder, DeepEvidentialModelBuilder)
+from nnueehcs.model_builder import get_model_builder_class
 from nnueehcs.training import Trainer, ModelSavingCallback
 from nnueehcs.data_utils import get_dataset, prepare_dataset_for_use
 from nnueehcs.evaluation import get_uncertainty_evaluator, UncertaintyEstimate
@@ -175,25 +173,7 @@ def get_trainer(trainer_config, name, model, ue_method, dataset, version=None, l
                    )
 
 
-def get_model_builder_class(uq_method):
-    if uq_method == 'ensemble':
-        return EnsembleModelBuilder
-    elif uq_method == 'kde':
-        return KDEModelBuilder
-    elif uq_method == 'knn_kde':
-        return KNNKDEModelBuilder
-    elif uq_method == 'delta_uq':
-        return DeltaUQMLPModelBuilder
-    elif uq_method == 'pager':
-        return PAGERModelBuilder
-    elif uq_method == 'mc_dropout':
-        return MCDropoutModelBuilder
-    elif uq_method == 'no_uq':
-        return BaselineModelBuilder
-    elif uq_method == 'deep_evidential':
-        return DeepEvidentialModelBuilder
-    else:
-        raise ValueError(f'Unknown uq method {uq_method}')
+
 
 
 def build_model(model_cfg, uq_config, uq_method, train_cfg):
