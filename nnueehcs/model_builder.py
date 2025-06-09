@@ -121,15 +121,15 @@ def build_network(architecture, builder=LayerBuilder(torch.nn.__dict__)):
         
     """
     layers = []
-    architecture = expand_repeats(copy.deepcopy(architecture))
     
     for block in architecture:
         assert len(block) == 1
         name, kwargs = list(block.items())[0]
         if kwargs is None:
             kwargs = {}
-        args = kwargs.pop("args", [])
-        layers.append(builder(name, *args, **kwargs))
+        kwargs_copy = kwargs.copy()
+        args = kwargs_copy.pop("args", [])
+        layers.append(builder(name, *args, **kwargs_copy))
     return torch.nn.Sequential(*layers)
 
 
@@ -223,6 +223,7 @@ class ModelInfo:
 class ModelBuilder:
     def __init__(self, model_descr, **kwargs):
         self.model_descr = copy.deepcopy(model_descr)
+        self.model_descr = expand_repeats(self.model_descr)
         if 'train_config' in kwargs:
             self.train_config = kwargs['train_config']
         else:

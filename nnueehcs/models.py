@@ -257,6 +257,7 @@ class MCDropoutModel(WrappedModelBase):
         for module in self.model.modules():
             if isinstance(module, nn.Dropout):
                 module.train()
+        return self
                 
     def to(self, device):
         super().to(device)
