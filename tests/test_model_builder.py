@@ -526,3 +526,157 @@ def test_repeat_empty_layers():
     assert expanded[0]['Linear']['args'] == [4, 32]
     assert 'Linear' in expanded[1]
     assert expanded[1]['Linear']['args'] == [32, 1]
+
+def test_info_grabber_outputs(model_descr_yaml):
+    """Test num_outputs and set_num_outputs methods for both CNN and MLP InfoGrabbers"""
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    
+    # Test MLPInfoGrabber outputs
+    builder = ModelBuilder(model_descr['architecture2'])
+    info = builder.get_info()
+    assert info.is_mlp() == True
+    assert info.num_outputs() == 5  # Last Linear layer outputs 5
+    
+    # Test setting outputs
+    info.set_num_outputs(10)
+    assert info.num_outputs() == 10
+    
+    # Verify the underlying description was updated
+    last_linear_found = False
+    for layer_dict in reversed(info.descr):
+        if 'Linear' in layer_dict:
+            assert layer_dict['Linear']['args'][1] == 10
+            last_linear_found = True
+            break
+    assert last_linear_found, "Should have found a Linear layer"
+    
+    # Test CNNInfoGrabber outputs
+    builder_cnn = ModelBuilder(model_descr['architecture'])
+    info_cnn = builder_cnn.get_info()
+    assert info_cnn.is_cnn() == True
+    assert info_cnn.num_outputs() == 25  # Last Conv2d layer outputs 25 channels
+    
+    # Test setting outputs for CNN
+    info_cnn.set_num_outputs(64)
+    assert info_cnn.num_outputs() == 64
+    
+    # Verify the underlying description was updated
+    last_conv_found = False
+    for layer_dict in reversed(info_cnn.descr):
+        if 'Conv2d' in layer_dict:
+            assert layer_dict['Conv2d']['args'][1] == 64
+            last_conv_found = True
+            break
+    assert last_conv_found, "Should have found a Conv2d layer"
+
+
+def test_cnn_with_final_linear_outputs():
+    """Test CNNInfoGrabber with architecture that ends in Linear layer"""
+    cnn_with_linear_arch = [
+        {'Conv2d': {'args': [3, 16, 5], 'stride': 1, 'padding': 2}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [256, 10]}}  # Final linear layer
+    ]
+    
+    builder = ModelBuilder(cnn_with_linear_arch)
+    info = builder.get_info()
+    assert info.is_cnn() == True
+    assert info.num_outputs() == 10  # Should find the Linear layer output
+    
+    # Test setting outputs
+    info.set_num_outputs(20)
+    assert info.num_outputs() == 20
+    
+    # Verify the Linear layer was updated in the InfoGrabber's description
+    # Note: the InfoGrabber works on a copy of the architecture, not the original
+    assert info.descr[2]['Linear']['args'][1] == 20
+    assert info.descr[0]['Conv2d']['args'][1] == 16  # Should be unchanged
+    
+    # Original architecture should remain unchanged since ModelBuilder makes a copy
+    assert cnn_with_linear_arch[2]['Linear']['args'][1] == 10
+    assert cnn_with_linear_arch[0]['Conv2d']['args'][1] == 16
+
+
+def test_outputs_with_various_architectures():
+    """Test output methods with different architecture patterns"""
+    
+    # Test architecture with multiple Linear layers
+    multi_linear_arch = [
+        {'Linear': {'args': [10, 50]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [50, 25]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [25, 1]}}  # This should be the output layer
+    ]
+    
+    builder = ModelBuilder(multi_linear_arch)
+    info = builder.get_info()
+    assert info.num_outputs() == 1
+    
+    info.set_num_outputs(5)
+    assert info.num_outputs() == 5
+    # Check InfoGrabber's internal description, not the original
+    assert info.descr[4]['Linear']['args'][1] == 5  # Last layer should be updated
+    assert info.descr[2]['Linear']['args'][1] == 25  # Previous layers unchanged
+    assert info.descr[0]['Linear']['args'][1] == 50
+    
+    # Test architecture with only non-Linear/Conv2d layers at the end
+    non_output_arch = [
+        {'Linear': {'args': [10, 5]}},
+        {'ReLU': {'inplace': True}},
+        {'Dropout': {'args': [0.5]}}
+    ]
+    
+    builder2 = ModelBuilder(non_output_arch)
+    info2 = builder2.get_info()
+    assert info2.num_outputs() == 5  # Should find the Linear layer
+    
+    info2.set_num_outputs(8)
+    assert info2.num_outputs() == 8
+    # Check InfoGrabber's internal description
+    assert info2.descr[0]['Linear']['args'][1] == 8
+
+
+def test_deep_evidential_uses_set_num_outputs(model_descr_yaml):
+    """Test that DeepEvidentialModelBuilder uses the set_num_outputs method"""
+    from nnueehcs.model_builder import DeepEvidentialModelBuilder
+    
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    der_config = {'some_param': 'value'}  # Minimal config for testing
+    
+    # Test with MLP architecture
+    builder = DeepEvidentialModelBuilder(model_descr['architecture2'], der_config)
+    
+    # Check original architecture before any modifications
+    assert model_descr['architecture2'][4]['Linear']['args'][1] == 5
+    
+    info = builder.get_info()
+    
+    assert info.num_outputs() == 9
+    
+    # Verify the last Linear layer was properly updated
+    last_linear_found = False
+    for layer_dict in reversed(info.descr):
+        if 'Linear' in layer_dict:
+            assert layer_dict['Linear']['args'][1] == 9
+            last_linear_found = True
+            break
+    assert last_linear_found
+
+
+def test_outputs_edge_cases():
+    """Test edge cases for output methods"""
+    
+    # Test architecture with no Linear or Conv2d layers
+    no_output_arch = [
+        {'ReLU': {'inplace': True}},
+        {'Dropout': {'args': [0.5]}}
+    ]
+    
+    builder = ModelBuilder(no_output_arch)
+    info = builder.get_info()  # This will create MLPInfoGrabber by default
+    assert info.num_outputs() is None  # Should return None when no suitable layer found
+    
+    # set_num_outputs should do nothing when no suitable layer is found
+    info.set_num_outputs(10)
+    assert info.num_outputs() is None  # Should still be None

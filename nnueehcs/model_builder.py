@@ -157,6 +157,25 @@ class CNNInfoGrabber(InfoGrabbBase):
     def set_num_inputs(self, num_inputs):
         self.descr[0]['Conv2d']['args'][0] = num_inputs
 
+    def num_outputs(self):
+        """Get the number of outputs from the last layer"""
+        for layer_dict in reversed(self.descr):
+            if 'Linear' in layer_dict:
+                return layer_dict['Linear']['args'][1]
+            elif 'Conv2d' in layer_dict:
+                return layer_dict['Conv2d']['args'][1]
+        return None
+
+    def set_num_outputs(self, num_outputs):
+        """Set the number of outputs for the last layer"""
+        for layer_dict in reversed(self.descr):
+            if 'Linear' in layer_dict:
+                layer_dict['Linear']['args'][1] = num_outputs
+                return
+            elif 'Conv2d' in layer_dict:
+                layer_dict['Conv2d']['args'][1] = num_outputs
+                return
+
 
 class MLPInfoGrabber(InfoGrabbBase):
     def __init__(self, descr):
@@ -173,6 +192,20 @@ class MLPInfoGrabber(InfoGrabbBase):
 
     def set_num_inputs(self, num_inputs):
         self.descr[0]['Linear']['args'][0] = num_inputs
+
+    def num_outputs(self):
+        """Get the number of outputs from the last Linear layer"""
+        for layer_dict in reversed(self.descr):
+            if 'Linear' in layer_dict:
+                return layer_dict['Linear']['args'][1]
+        return None
+
+    def set_num_outputs(self, num_outputs):
+        """Set the number of outputs for the last Linear layer"""
+        for layer_dict in reversed(self.descr):
+            if 'Linear' in layer_dict:
+                layer_dict['Linear']['args'][1] = num_outputs
+                return
 
 
 class ModelInfo:
@@ -378,7 +411,8 @@ class DeepEvidentialModelBuilder(ModelBuilder):
         self._updated = False
 
     def build(self):
-        # Update the architecture to output 4 values instead of 1
+        # Update the architecture to output 4 additional values
+        # (evidential parameters)
         self.update_info(self.get_info())
         base_model = super().build()
         return DeepEvidentialModel(base_model, 
@@ -391,15 +425,7 @@ class DeepEvidentialModelBuilder(ModelBuilder):
             return
         self._updated = True
         
-        # Find the last Linear layer and multiply its output by 4
-        for i in range(len(self.model_descr) - 1, -1, -1):
-            layer_dict = self.model_descr[i]
-            if 'Linear' in layer_dict:
-                current_args = layer_dict['Linear']['args']
-                # Change output dimension from 1 to 4 (gamma, nu, alpha, beta)
-                if len(current_args) >= 2:
-                    current_args[1] = 4
-                break
+        info.set_num_outputs(4 + info.num_outputs())
 
 def get_model_builder_class(uq_method):
     """Get the appropriate model builder class for a given UQ method.
