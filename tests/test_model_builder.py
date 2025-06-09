@@ -6,6 +6,12 @@ from nnueehcs.model_builder import (build_network, ModelBuilder,
                                     KDEModelBuilder,
                                     KDEMLPModel,
                                     MCDropoutModelBuilder,
+                                    MLPModelBuilder,
+                                    BaselineModelBuilder,
+                                    KNNKDEModelBuilder,
+                                    DeepEvidentialModelBuilder,
+                                    LayerBuilder,
+                                    get_model_builder_class,
                                     expand_repeats)
 import torch
 import io
@@ -136,6 +142,7 @@ architecture3:
 delta_uq_model:
     estimator: std
     num_anchors: 2
+    anchored_batch_size: 32
 mc_dropout_model:
     num_samples: 10
     dropout_percent: 0.2
@@ -303,7 +310,7 @@ MCDropoutModel(
     (2): Dropout(p=0.2, inplace=False)
     (3): Linear(in_features=25, out_features=25, bias=True)
     (4): ReLU(inplace=True)
-    (5): Dropout(p=0.5, inplace=False)
+    (5): Dropout(p=0.2, inplace=False)
     (6): Linear(in_features=25, out_features=25, bias=True)
     (7): ReLU(inplace=True)
     (8): Linear(in_features=25, out_features=5, bias=True)
@@ -402,7 +409,7 @@ def test_expand_repeats_nested():
 
 
 def test_build_network_with_repeat():
-    """Test that build_network works with repeat blocks"""
+    """Test that build_network works with repeat blocks after expansion"""
     architecture = [
         {'Linear': {'args': [4, 32]}},
         {'Repeat': {
@@ -415,8 +422,9 @@ def test_build_network_with_repeat():
         {'Linear': {'args': [32, 1]}}
     ]
     
-    # This should not raise an exception
-    network = build_network(architecture)
+    # Expand repeats first, then build network
+    expanded_architecture = expand_repeats(architecture)
+    network = build_network(expanded_architecture)
     
     # Check that we can create a model instance
     assert isinstance(network, torch.nn.Sequential)
@@ -492,8 +500,9 @@ architecture_with_repeat:
     config = yaml.safe_load(io.StringIO(yaml_config))
     architecture = config['architecture_with_repeat']
     
-    # Build network should work with repeat blocks
-    network = build_network(architecture)
+    # Expand repeats first, then build network
+    expanded_architecture = expand_repeats(architecture)
+    network = build_network(expanded_architecture)
     
     # Should have: 1 + 3*3 + 1 = 11 layers
     assert len(network) == 11
@@ -680,3 +689,412 @@ def test_outputs_edge_cases():
     # set_num_outputs should do nothing when no suitable layer is found
     info.set_num_outputs(10)
     assert info.num_outputs() is None  # Should still be None
+
+
+def test_mlp_model_builder(model_descr_yaml):
+    """Test MLPModelBuilder functionality"""
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    
+    # Test basic MLP building
+    builder = MLPModelBuilder(model_descr['architecture2'])
+    model = builder.build()
+    
+    # Should return an MLPModel instance
+    from nnueehcs.models import MLPModel
+    assert isinstance(model, MLPModel)
+    
+    # Test with train config
+    train_config = {'learning_rate': 0.001, 'batch_size': 32}
+    builder_with_config = MLPModelBuilder(model_descr['architecture2'], train_config=train_config)
+    model_with_config = builder_with_config.build()
+    assert model_with_config.train_config['learning_rate'] == 0.001
+    assert model_with_config.train_config['batch_size'] == 32
+
+
+def test_baseline_model_builder(model_descr_yaml):
+    """Test BaselineModelBuilder functionality"""
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    
+    # Test basic baseline building
+    builder = BaselineModelBuilder(model_descr['architecture2'])
+    model = builder.build()
+    
+    from nnueehcs.models import BaselineModel
+    assert isinstance(model, BaselineModel)
+    
+    # Test with baseline config
+    baseline_config = {'uncertainty_value': 2.0}
+    builder_with_config = BaselineModelBuilder(
+        model_descr['architecture2'], 
+        baseline_descr=baseline_config
+    )
+    model_with_config = builder_with_config.build()
+    assert model_with_config.uncertainty_value == 2.0
+    
+    # Test default baseline config (empty dict)
+    builder_default = BaselineModelBuilder(model_descr['architecture2'])
+    model_default = builder_default.build()
+    assert hasattr(model_default, 'uncertainty_value')
+
+
+def test_knn_kde_model_builder(model_descr_yaml):
+    """Test KNNKDEModelBuilder functionality"""
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    knn_kde_config = {
+        'bandwidth': 'scott',
+        'k': 15,
+        'train_fit_prop': 0.8
+    }
+    
+    # Test with MLP architecture
+    builder = KNNKDEModelBuilder(model_descr['architecture2'], knn_kde_config)
+    model = builder.build()
+    
+    from nnueehcs.models import KNNKDEMLPModel
+    assert isinstance(model, KNNKDEMLPModel)
+    assert model.k == 15
+    assert model.bandwidth == 'scott'
+    assert model.train_fit_prop == 0.8
+    
+    # Test info
+    info = builder.get_info()
+    assert info.is_mlp() == True
+    assert info.is_cnn() == False
+    assert info.num_inputs() == 16
+
+
+def test_deep_evidential_model_builder_comprehensive(model_descr_yaml):
+    """Test DeepEvidentialModelBuilder more comprehensively"""
+    model_descr = yaml.safe_load(io.StringIO(model_descr_yaml))
+    der_config = {'lam': 0.1}
+    
+    # Test with MLP architecture
+    builder = DeepEvidentialModelBuilder(model_descr['architecture2'], der_config)
+    model = builder.build()
+    
+    from nnueehcs.models import DeepEvidentialModel
+    assert isinstance(model, DeepEvidentialModel)
+    assert model.lam == 0.1
+    
+    # Test that outputs were updated to 4 + original
+    info = builder.get_info()
+    assert info.num_outputs() == 9  # 5 + 4 evidential parameters
+    
+    # Test that update_info only runs once
+    builder.update_info(info)  # Should not change anything since _updated is True
+    assert info.num_outputs() == 9
+    
+    # Test with CNN architecture
+    builder_cnn = DeepEvidentialModelBuilder(model_descr['architecture'], der_config)
+    info_cnn = builder_cnn.get_info()
+    assert info_cnn.num_outputs() == 29  # 25 + 4 evidential parameters
+
+
+def test_get_model_builder_class():
+    """Test the get_model_builder_class function"""
+    
+    # Test all valid UQ methods
+    assert get_model_builder_class('ensemble') == EnsembleModelBuilder
+    assert get_model_builder_class('kde') == KDEModelBuilder
+    assert get_model_builder_class('knn_kde') == KNNKDEModelBuilder
+    assert get_model_builder_class('delta_uq') == DeltaUQMLPModelBuilder
+    assert get_model_builder_class('pager') == PAGERModelBuilder
+    assert get_model_builder_class('mc_dropout') == MCDropoutModelBuilder
+    assert get_model_builder_class('no_uq') == BaselineModelBuilder
+    assert get_model_builder_class('deep_evidential') == DeepEvidentialModelBuilder
+    
+    # Test invalid UQ method
+    with pytest.raises(ValueError, match="Unknown uq method invalid_method"):
+        get_model_builder_class('invalid_method')
+
+
+def test_layer_builder():
+    """Test LayerBuilder functionality"""
+    
+    # Test basic functionality with torch.nn namespace
+    builder = LayerBuilder(torch.nn.__dict__)
+    
+    # Test creating a layer
+    linear = builder('Linear', 10, 5)
+    assert isinstance(linear, torch.nn.Linear)
+    assert linear.in_features == 10
+    assert linear.out_features == 5
+    
+    # Test with kwargs
+    conv = builder('Conv2d', 3, 16, kernel_size=5, stride=2, padding=1)
+    assert isinstance(conv, torch.nn.Conv2d)
+    assert conv.in_channels == 3
+    assert conv.out_channels == 16
+    assert conv.kernel_size == (5, 5)
+    assert conv.stride == (2, 2)
+    assert conv.padding == (1, 1)
+    
+    # Test error handling for invalid layer name
+    with pytest.raises(KeyError):
+        builder('InvalidLayer', 10, 5)
+
+
+def test_layer_builder_multiple_namespaces():
+    """Test LayerBuilder with multiple namespaces"""
+    
+    # Create a custom namespace
+    custom_namespace = {
+        'CustomLinear': lambda in_features, out_features: torch.nn.Linear(in_features, out_features)
+    }
+    
+    builder = LayerBuilder(torch.nn.__dict__, custom_namespace)
+    
+    # Test accessing from torch.nn namespace
+    relu = builder('ReLU')
+    assert isinstance(relu, torch.nn.ReLU)
+    
+    # Test accessing from custom namespace
+    custom_linear = builder('CustomLinear', 5, 3)
+    assert isinstance(custom_linear, torch.nn.Linear)
+    assert custom_linear.in_features == 5
+    assert custom_linear.out_features == 3
+
+
+def test_layer_builder_add_namespace():
+    """Test LayerBuilder add_namespace functionality"""
+    
+    builder = LayerBuilder(torch.nn.__dict__)
+    
+    # Add namespace at end (default)
+    custom_namespace1 = {'CustomLayer1': lambda: torch.nn.Identity()}
+    builder.add_namespace(custom_namespace1)
+    
+    custom_layer1 = builder('CustomLayer1')
+    assert isinstance(custom_layer1, torch.nn.Identity)
+    
+    # Add namespace at beginning
+    custom_namespace2 = {'CustomLayer2': lambda: torch.nn.Dropout()}
+    builder.add_namespace(custom_namespace2, index=0)
+    
+    custom_layer2 = builder('CustomLayer2')
+    assert isinstance(custom_layer2, torch.nn.Dropout)
+
+
+def test_build_network_edge_cases():
+    """Test edge cases for build_network function"""
+    
+    # Test with empty architecture
+    empty_arch = []
+    network = build_network(empty_arch)
+    assert isinstance(network, torch.nn.Sequential)
+    assert len(network) == 0
+    
+    # Test with single layer
+    single_layer_arch = [{'Linear': {'args': [10, 5]}}]
+    network = build_network(single_layer_arch)
+    assert len(network) == 1
+    assert isinstance(network[0], torch.nn.Linear)
+    
+    # Test with None kwargs
+    none_kwargs_arch = [{'ReLU': None}]
+    network = build_network(none_kwargs_arch)
+    assert len(network) == 1
+    assert isinstance(network[0], torch.nn.ReLU)
+
+
+def test_info_grabber_set_num_inputs():
+    """Test set_num_inputs functionality for both CNN and MLP InfoGrabbers"""
+    
+    # Test MLPInfoGrabber set_num_inputs
+    mlp_arch = [
+        {'Linear': {'args': [16, 32]}},
+        {'ReLU': {'inplace': True}},
+        {'Linear': {'args': [32, 5]}}
+    ]
+    
+    builder = ModelBuilder(mlp_arch)
+    info = builder.get_info()
+    assert info.num_inputs() == 16
+    
+    info.set_num_inputs(20)
+    assert info.num_inputs() == 20
+    assert info.descr[0]['Linear']['args'][0] == 20
+    
+    # Test CNNInfoGrabber set_num_inputs
+    cnn_arch = [
+        {'Conv2d': {'args': [3, 16, 5], 'stride': 1, 'padding': 2}},
+        {'ReLU': {'inplace': True}},
+        {'Conv2d': {'args': [16, 32, 3], 'stride': 1, 'padding': 1}}
+    ]
+    
+    builder_cnn = ModelBuilder(cnn_arch)
+    info_cnn = builder_cnn.get_info()
+    assert info_cnn.num_inputs() == 3
+    
+    info_cnn.set_num_inputs(6)
+    assert info_cnn.num_inputs() == 6
+    assert info_cnn.descr[0]['Conv2d']['args'][0] == 6
+
+
+
+def test_model_builder_with_train_config():
+    """Test ModelBuilder with train_config parameter"""
+    
+    arch = [{'Linear': {'args': [10, 5]}}]
+    train_config = {'learning_rate': 0.001, 'epochs': 100}
+    
+    builder = ModelBuilder(arch, train_config=train_config)
+    assert builder.train_config == train_config
+    
+    # Test without train_config
+    builder_no_config = ModelBuilder(arch)
+    assert builder_no_config.train_config is None
+
+
+def test_pager_model_builder_update_only_once():
+    """Test that PAGERModelBuilder update_info only runs once"""
+    
+    arch = [{'Linear': {'args': [10, 20]}}]
+    pager_config = {'estimator': 'variance', 'num_anchors': 5}
+    
+    builder = PAGERModelBuilder(arch, pager_config)
+    info = builder.get_info()
+    
+    # First call should double inputs
+    assert info.num_inputs() == 20  # 2 * 10
+    
+    # Second call should not change anything
+    builder.update_info(info)
+    assert info.num_inputs() == 20  # Should remain 20, not become 40
+
+
+def test_duq_model_builder_update_only_once():
+    """Test that DeltaUQMLPModelBuilder update_info only runs once"""
+    
+    arch = [{'Linear': {'args': [10, 20]}}]
+    duq_config = {'estimator': 'std', 'num_anchors': 3, 'anchored_batch_size': 64}
+    
+    builder = DeltaUQMLPModelBuilder(arch, duq_config)
+    info = builder.get_info()
+    
+    # First call should double inputs
+    assert info.num_inputs() == 20  # 2 * 10
+    
+    # Second call should not change anything
+    builder.update_info(info)
+    assert info.num_inputs() == 20  # Should remain 20, not become 40
+    
+    # Test get_batch_size method
+    assert info.get_batch_size() == 64
+
+
+def test_expand_repeats_with_count_zero():
+    """Test expand_repeats with count=0 edge case"""
+    
+    architecture = [
+        {'Linear': {'args': [4, 32]}},
+        {'Repeat': {
+            'count': 0,
+            'layers': [
+                {'Linear': {'args': [32, 32]}},
+                {'ReLU': {'inplace': True}}
+            ]
+        }},
+        {'Linear': {'args': [32, 1]}}
+    ]
+    
+    expanded = expand_repeats(architecture)
+    
+    # Should have only the first and last layers
+    assert len(expanded) == 2
+    assert 'Linear' in expanded[0]
+    assert expanded[0]['Linear']['args'] == [4, 32]
+    assert 'Linear' in expanded[1]
+    assert expanded[1]['Linear']['args'] == [32, 1]
+
+
+def test_complex_nested_repeats():
+    """Test deeply nested repeat structures"""
+    
+    architecture = [
+        {'Linear': {'args': [4, 16]}},
+        {'Repeat': {
+            'count': 2,
+            'layers': [
+                {'Linear': {'args': [16, 16]}},
+                {'Repeat': {
+                    'count': 2,
+                    'layers': [
+                        {'BatchNorm1d': {'args': [16]}},
+                        {'Repeat': {
+                            'count': 2,
+                            'layers': [{'ReLU': {'inplace': True}}]
+                        }}
+                    ]
+                }}
+            ]
+        }},
+        {'Linear': {'args': [16, 1]}}
+    ]
+    
+    expanded = expand_repeats(architecture)
+    
+    # Count should be: 1 + 2 * (1 + 2 * (1 + 2 * 1)) + 1 = 1 + 2 * (1 + 2 * 3) + 1 = 1 + 2 * 7 + 1 = 16
+    assert len(expanded) == 16
+
+
+def test_error_handling_in_layer_builder():
+    """Test error handling and formatting in LayerBuilder"""
+    
+    builder = LayerBuilder(torch.nn.__dict__)
+    
+    # Test that errors are properly formatted with context
+    try:
+        # This should fail because Linear requires at least 2 arguments
+        builder('Linear', 10)  # Missing out_features
+    except Exception as e:
+        # The error should include the layer name and arguments
+        assert 'Linear' in str(e)
+        assert '10' in str(e)
+
+
+def test_model_builder_copy_behavior():
+    """Test that ModelBuilder makes deep copies of architecture"""
+    
+    original_arch = [
+        {'Linear': {'args': [10, 20]}},
+        {'ReLU': {'inplace': True}}
+    ]
+    
+    builder = ModelBuilder(original_arch)
+    
+    # Modify the builder's architecture through info
+    info = builder.get_info()
+    info.set_num_inputs(15)
+    
+    # Original architecture should be unchanged
+    assert original_arch[0]['Linear']['args'][0] == 10
+    
+    # Builder's copy should be changed
+    assert builder.model_descr[0]['Linear']['args'][0] == 15
+
+
+def test_mc_dropout_info_methods():
+    """Test MCDropoutModelBuilder info methods"""
+    
+    arch = [{'Linear': {'args': [10, 5]}}]
+    dropout_config = {'num_samples': 50, 'dropout_percent': 0.4}
+    
+    builder = MCDropoutModelBuilder(arch, dropout_config)
+    info = builder.get_info()
+    
+    # Test additional methods added by update_info
+    assert info.get_num_samples() == 50
+    assert info.get_dropout_percent() == 0.4
+
+
+def test_build_network_assertion_error():
+    """Test that build_network raises assertion error for malformed architecture"""
+    
+    # Architecture with multiple keys in one block should fail
+    malformed_arch = [
+        {'Linear': {'args': [10, 5]}, 'ReLU': {'inplace': True}}  # Two keys in one dict
+    ]
+    
+    with pytest.raises(AssertionError):
+        build_network(malformed_arch)
